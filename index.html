@@ -81,7 +81,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-133534"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-133606"; // stamped by publish-phone-app.sh on every publish
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -598,7 +598,7 @@ const ui = {
     if (!user) return ui.signIn();
     $app.innerHTML = `
       <div class="row"><h1>Processing App</h1><span class="spacer"></span><button class="quiet small" id="hist">Past sessions</button></div>
-      <p class="muted">Choose a style of auditing.</p>
+      <p class="muted">Choose a style of processing.</p>
       <div class="stack">${MODES.map(m => `
         <button class="mode" data-id="${m.id}" ${m.ready ? "" : "disabled"}>
           <b>${esc(m.name)}</b><span>${esc(m.desc)}</span>${m.ready ? "" : '<span class="soon">Coming later</span>'}
