@@ -81,7 +81,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-140927"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-141656"; // stamped by publish-phone-app.sh on every publish
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -89,6 +89,18 @@ const S = {
   REVIEW_WAIT: "Take your time. When you're ready, say: yes, I'm ready.",
   READY: "Are you ready to begin the session?",
   NOT_READY: "That's fine. Come back whenever you're ready.",
+  // Framework: OPENING is read after "yes" to READY, the processing runs, then CLOSING counts the person out.
+  OPENING: [
+    "We will begin the session now.",
+    "You'll remain aware of everything which goes on.",
+    "You'll be able to remember everything which happens here.",
+    "You can pull yourself out of anything which you get into if you don't like it.",
+    "Close your eyes.",
+    "In the future, when I utter the word cancel, everything I've said to you while in your therapy session will be cancelled and will have no force with you.",
+    "Any suggestion I make to you will be without force when I say the word cancel.",
+    "Any positive statements that you're deliberately planting to transform this issue will be in force according to your intention, and according to your highest good.",
+  ],
+  CLOSING: ["5.", "4.", "3.", "2.", "1.", "Awake."],
   START: "Do you have any somatics you want to process right now? Pain, discomfort, or negative body sensations.",
   LOCATE: "Where do you feel it in your body?",
   INTENSITY: "On a scale of 1 to 10, what is the intensity?",
@@ -582,6 +594,14 @@ async function runChecklist() {
   return true;
 }
 
+async function openSession() {
+  session.opened = true;
+  for (const line of S.OPENING) { await say(line); await wait(600); }
+}
+async function closeSession() {
+  for (const line of S.CLOSING) { await say(line); await wait(700); }
+}
+
 async function runSession(mode) {
   Object.assign(S, S_BASE, mode.lines);
   session = { mode, id: null, started: new Date(), items: [], memories: [], drawn: [], outcome: "completed", ack: "", pending: null,
@@ -591,20 +611,25 @@ async function runSession(mode) {
   const { data } = await sb.from("auditor_sessions").insert({ mode: mode.id }).select("id").single();
   session.id = data?.id ?? null;
   try {
-    if (!(await runChecklist())) { /* outcome already set */ }
-    else if (!(await askParsed(S.START, parseYesNo, "yesno")) && !(await drawUp(mode.draw))) { session.outcome = "no charge present"; await say(S.NONE_START); }
-    else {
-      while (true) {
-        await (mode.item === "memory" ? runMemoryItem() : runItem());
-        if (!(await askParsed(S.ITEM_DONE, parseYesNo, "yesno"))) break;
+    if (await runChecklist()) {
+      await openSession();
+      if (!(await askParsed(S.START, parseYesNo, "yesno")) && !(await drawUp(mode.draw))) { session.outcome = "no charge present"; await say(S.NONE_START); }
+      else {
+        while (true) {
+          await (mode.item === "memory" ? runMemoryItem() : runItem());
+          if (!(await askParsed(S.ITEM_DONE, parseYesNo, "yesno"))) break;
+        }
+        await say(S.END);
       }
-      await say(S.END);
     }
   } catch (e) {
-    if (e instanceof Distress) { session.outcome = "paused for safety"; await say(S.DISTRESS); }
+    if (e instanceof Distress) session.outcome = "paused for safety";
     else if (e instanceof Stopped) { session.outcome = "stopped by user"; speechSynthesis.cancel(); }
     else { session.outcome = "ended by an error"; console.error(e); }
   }
+  // Whatever ended the session, count the person out of it before anything else.
+  if (session.opened) { try { await closeSession(); } catch {} }
+  if (session.outcome === "paused for safety") await say(S.DISTRESS);
   try { wakeLock?.release(); } catch {}
   ui.status("thinking"); ui.question("Saving your session...");
   let summary = null;
