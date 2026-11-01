@@ -214,7 +214,7 @@ function srError(e) {
 }
 let voice = null;
 // Phones list robotic novelty voices (iPhone's Fred, Eddy, Grandpa...). Never pick those on our own.
-const ROBOTIC = /(albert|bad news|bahh|bells|boing|bubbles|cellos|fred|good news|jester|junior|kathy|organ|ralph|superstar|trinoids|whisper|wobble|zarvox|eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley|hysterical)/i;
+const ROBOTIC = /\b(albert|bad news|bahh|bells|boing|bubbles|cellos|fred|good news|jester|junior|kathy|organ|ralph|superstar|trinoids|whisper|wobble|zarvox|eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley|hysterical)\b/i;
 function voiceScore(v) {
   let s = 0;
   if (ROBOTIC.test(v.name)) s -= 100;
