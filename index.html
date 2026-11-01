@@ -70,6 +70,7 @@ textarea.report { width: 100%; min-height: 60vh; resize: vertical; color: var(--
 .report { white-space: pre-wrap; font-size: 15px; word-break: break-word; overflow-wrap: anywhere; }
 .list button { width: 100%; text-align: left; background: var(--surface); color: var(--fg); border: 1px solid var(--line); font-weight: 400; }
 .err { color: var(--warn); }
+.truth p { margin: 0; font-size: 17px; line-height: 1.55; }
 .reqs { margin: 0; padding-left: 36px; display: flex; flex-direction: column; gap: 8px; font-size: 16px; }
 </style>
 </head>
@@ -82,7 +83,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-153332"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-154815"; // stamped by publish-phone-app.sh on every publish
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -228,6 +229,15 @@ const MODES = [
             HAVE: "Are you getting that feeling right now?" } },
 ];
 const MAX_DRAWS = 8;
+
+const TRUTH = [
+  "In these processes, we're locating counter-intentions, neutralizing them when you say \"cancel, cancel,\" and replacing them with an absolute truth.",
+  "What is an absolute truth? Absolute truth is something that is always true, 100% true, and is the highest truth. Absolute truth is that God is within us, that we have infinite supply, and that the kingdom of heaven is within us.",
+  "There are truths which are manifest in duality, such as \"I am/feel weak,\" \"I have pain,\" and \"I am/feel stupid.\"",
+  "While these limiting feelings, states of being, and thoughts may be temporarily true in the moment, they are not congruent with the absolute truth of the power and resources that we have within us. They are simply limiting the expression of our light coming through our identity.",
+  "All limitation and suffering is based upon us believing in something that is not the absolute truth. The more that we align our mind with the absolute truths, with our true identity, the less suffering we'll experience.",
+  "These processes are designed to neutralize counter-intentions and to put new positive seeds, which are in alignment with the highest truth: that the kingdom of heaven is within you, that you are a child of God, and that you have infinite supply.",
+];
 const modeTitle = m => m.title || m.name;
 const MAX_CYCLES = 15;
 
@@ -436,6 +446,7 @@ function countTen(phrase) {
 
 // ---------------------------------------------------------------- AI (light touch)
 async function ai(task, payload, timeoutMs) {
+  if (!session?.aiOn) return null; // switched off: the scripted fallbacks take over
   try {
     const call = sb.functions.invoke("auditor-ai", { body: { task, payload } });
     const res = await (timeoutMs ? Promise.race([call, new Promise(r => setTimeout(() => r(null), timeoutMs))]) : call);
@@ -609,6 +620,8 @@ async function runSession(mode) {
               transcript: [], checklist: [], usage: { input: 0, output: 0, calls: 0 } };
   ui.sessionScreen();
   try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
+  const { data: st } = await sb.from("auditor_settings").select("ai_enabled").eq("id", 1).maybeSingle();
+  session.aiOn = st?.ai_enabled !== false;
   const { data } = await sb.from("auditor_sessions").insert({ mode: mode.id }).select("id").single();
   session.id = data?.id ?? null;
   try {
@@ -688,7 +701,8 @@ function buildReport(summary) {
   L.push("", "Counter-intentions erased (canceled):", ...(counters.length ? counters.map(c => `  ✕ ${c}`) : ["  none"]));
   L.push("", "Positive seeds planted:", ...(seeds.length ? seeds.map(s => `  ✓ ${s}`) : ["  none"]));
   const u = session.usage, cost = u.input * PRICE_IN + u.output * PRICE_OUT;
-  L.push("", `AI use: ${u.calls} calls, ${u.input} tokens in, ${u.output} tokens out, about $${cost.toFixed(4)}`);
+  if (!session.aiOn) L.push("", "AI use: switched off");
+  else L.push("", `AI use: ${u.calls} calls, ${u.input} tokens in, ${u.output} tokens out, about $${cost.toFixed(4)}`);
   return L.join("\n");
 }
 
@@ -743,18 +757,46 @@ const ui = {
       <div class="row"><h1>Processing App</h1><span class="spacer"></span><button class="quiet small" id="hist">Past sessions</button></div>
       <p class="muted">Choose a style of processing.</p>
       <div class="stack">${GROUPS.map(g => `
-        <button class="mode" data-group="${g.id}"><b>${esc(g.name)}</b><span>${esc(g.desc)}</span></button>`).join("")}</div>
+        <button class="mode" data-group="${g.id}"><b>${esc(g.name)}</b><span>${esc(g.desc)}</span></button>`).join("")}
+        <button class="quiet" id="truth">Absolute Truth, Understanding and Concepts</button></div>
       ${SR ? "" : `<p class="small err">${
         IS_IOS && IS_STANDALONE ? "Voice input doesn't work from the home screen on this iPhone. Open the app in Safari for voice, or type your answers."
         : IS_SAMSUNG_BROWSER ? "Voice input doesn't work in Samsung Internet. Open this link in Chrome for voice, or type your answers."
         : "Voice input isn't available in this browser. You can type your answers. On iPhone use Safari; on Android use Chrome."}</p>`}
       <span class="spacer"></span>
-      <div class="row small muted"><span>${esc(user.email)} · version ${esc(APP_VERSION)}</span><span class="spacer"></span><button class="quiet small" id="voicebtn">Voice</button><button class="quiet small" id="pwchange">Change password</button><button class="quiet small" id="out">Sign out</button></div>`;
+      <div class="row small muted"><span>${esc(user.email)} · version ${esc(APP_VERSION)}</span><span class="spacer"></span><button class="quiet small" id="aibtn" hidden></button><button class="quiet small" id="voicebtn">Voice</button><button class="quiet small" id="pwchange">Change password</button><button class="quiet small" id="out">Sign out</button></div>`;
     for (const g of GROUPS) $app.querySelector(`[data-group="${g.id}"]`).onclick = () => ui.group(g);
     document.getElementById("hist").onclick = () => ui.history();
     document.getElementById("out").onclick = async () => { await sb.auth.signOut(); ui.signIn(); };
     document.getElementById("pwchange").onclick = () => ui.changePassword();
     document.getElementById("voicebtn").onclick = () => ui.voices();
+    document.getElementById("truth").onclick = () => ui.truth();
+    ui.aiSwitch(document.getElementById("aibtn"));
+  },
+
+  // Only the admin sees this. It turns AI on or off for every family member's sessions.
+  async aiSwitch(btn) {
+    const { data: isAdmin } = await sb.rpc("auditor_is_admin");
+    if (!isAdmin) return;
+    const { data: st } = await sb.from("auditor_settings").select("ai_enabled").eq("id", 1).maybeSingle();
+    let on = st?.ai_enabled !== false;
+    const label = () => { btn.textContent = on ? "AI: on" : "AI: off"; };
+    label();
+    btn.hidden = false;
+    btn.onclick = async () => {
+      btn.disabled = true;
+      const { error } = await sb.from("auditor_settings").update({ ai_enabled: !on, updated_at: new Date().toISOString() }).eq("id", 1);
+      if (!error) on = !on;
+      btn.disabled = false;
+      label();
+    };
+  },
+
+  truth() {
+    $app.innerHTML = `
+      <div class="row"><h1>Absolute Truth, Understanding and Concepts</h1><span class="spacer"></span><button class="quiet small" id="back">Back</button></div>
+      <div class="panel stack truth">${TRUTH.map(t => `<p>${esc(t)}</p>`).join("")}</div>`;
+    document.getElementById("back").onclick = () => ui.menu();
   },
 
   group(g) {

@@ -99,6 +99,10 @@ Deno.serve(async (req) => {
   const { data: member } = await admin.from("auditor_family").select("email").eq("email", user.email.toLowerCase()).maybeSingle();
   if (!member) return reply({ error: "not_family" }, 403);
 
+  // The admin can switch AI off for everyone from the app; the app then runs fully scripted.
+  const { data: settings } = await admin.from("auditor_settings").select("ai_enabled").eq("id", 1).maybeSingle();
+  if (settings && !settings.ai_enabled) return reply({ error: "ai_off" }, 503);
+
   const { data: usage } = await admin.from("auditor_usage").select("calls")
     .eq("user_id", user.id).eq("day", new Date().toISOString().slice(0, 10)).maybeSingle();
   if ((usage?.calls ?? 0) >= DAILY_CALL_CAP) return reply({ error: "daily_cap" }, 429);
