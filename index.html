@@ -81,7 +81,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-001735"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-133534"; // stamped by publish-phone-app.sh on every publish
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -117,6 +117,7 @@ const S = {
   DISTRESS: "Let's pause here. If you are in crisis or thinking about hurting yourself, please reach out for help right now. In the US, call or text 988.",
   REPEAT_Q: "Sorry, I didn't catch that.",
 };
+const S_BASE = { ...S }; // each session starts from these lines, then applies its mode's wording
 // Extra perceptics. Each cycle asks a few of these, picked to fit what the person has described.
 const EXTRA = {
   temperature: "What is the temperature of it?",
@@ -152,11 +153,21 @@ const REQUIREMENTS = [
   "You want to begin the session right now.",
 ];
 
+// Each ready mode runs the same procedure; "lines" swaps the wording, "name_q" asks what the item is first.
 const MODES = [
-  { id: "somatic_light", name: "Somatic Light", desc: "Reduce a feeling or somatic to zero. No memory work.", ready: true },
-  { id: "somatic_memory", name: "Somatic Memory", desc: "Somatic processing with memory retrieval.", ready: false },
-  { id: "memory_full", name: "Full Memory Processing Method", desc: "Take one memory all the way through.", ready: false },
-  { id: "chains", name: "Chain Processing Method", desc: "Dianetic-style auditing, going back through chains.", ready: false },
+  { id: "somatic_light", name: "Somatic Processing Light", desc: "Reduce a somatic to zero. No memory work.", ready: true,
+    noun: "Somatics" },
+  { id: "somatic_memory", name: "Somatic Processing with Memory", desc: "Somatic processing with memory retrieval.", ready: false },
+  { id: "negative_emotion", name: "Negative Emotion Processing", desc: "Reduce a negative emotion to zero. No memory work.", ready: true,
+    noun: "Negative emotions", name_q: "What is the emotion?",
+    lines: { START: "Do you have any negative emotion right now?",
+             ITEM_DONE: "That one is discharged. Is there any other negative emotion?" } },
+  { id: "feelings", name: "Feelings Processing", desc: "Reduce an unwanted feeling to zero. No memory work.", ready: true,
+    noun: "Feelings", name_q: "What is the feeling?",
+    lines: { START: "Is there a feeling you want to process right now?",
+             ITEM_DONE: "That one is discharged. Is there any other feeling?" } },
+  { id: "memory_full", name: "Full Memory Processing Method", desc: "Complete discharge on one memory at a time. No chains.", ready: false },
+  { id: "chains", name: "Chain Processing Method", desc: "Process each memory and get to the earliest one in the chain.", ready: false },
 ];
 const MAX_CYCLES = 15;
 
@@ -417,8 +428,9 @@ async function repeatTen(intro, phrase) {
 }
 
 async function runItem() {
-  const item = { location: null, start: null, cycles: [] };
+  const item = { name: null, location: null, start: null, cycles: [] };
   session.items.push(item);
+  if (session.mode.name_q) item.name = cleanPhrase(await ask(session.mode.name_q, { reflect: true }));
   item.location = await ask(S.LOCATE, { reflect: true });
   item.start = await askParsed(S.INTENSITY, parseNumber, "number");
   for (let c = 0; c < MAX_CYCLES; c++) {
@@ -475,12 +487,13 @@ async function runChecklist() {
   return true;
 }
 
-async function runSession() {
-  session = { id: null, started: new Date(), items: [], outcome: "completed", ack: "", pending: null,
+async function runSession(mode) {
+  Object.assign(S, S_BASE, mode.lines);
+  session = { mode, id: null, started: new Date(), items: [], outcome: "completed", ack: "", pending: null,
               transcript: [], checklist: [], usage: { input: 0, output: 0, calls: 0 } };
   ui.sessionScreen();
   try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
-  const { data } = await sb.from("auditor_sessions").insert({ mode: "somatic_light" }).select("id").single();
+  const { data } = await sb.from("auditor_sessions").insert({ mode: mode.id }).select("id").single();
   session.id = data?.id ?? null;
   try {
     if (!(await runChecklist())) { /* outcome already set */ }
@@ -517,7 +530,7 @@ async function saveProgress() {
 
 function buildReport(summary) {
   const fmt = d => d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-  const L = [`Somatic Light Session`, `${fmt(session.started)}  ·  ${session.outcome}`, ""];
+  const L = [`${session.mode.name} Session`, `${fmt(session.started)}  ·  ${session.outcome}`, ""];
   if (summary) L.push(summary, "");
   if (session.checklist.length) {
     L.push("READINESS");
@@ -525,7 +538,7 @@ function buildReport(summary) {
     L.push("");
   }
   session.items.forEach((it, i) => {
-    L.push(`ITEM ${i + 1}: ${it.location || "(not located)"}`, `Starting intensity: ${it.start ?? "-"}`);
+    L.push(`ITEM ${i + 1}: ${[it.name, it.location].filter(Boolean).join(", ") || "(not located)"}`, `Starting intensity: ${it.start ?? "-"}`);
     it.cycles.forEach((c, j) => {
       L.push(`  Cycle ${j + 1}`);
       for (const [k, v] of Object.entries(c.perceptics)) L.push(`    ${k}: ${v}`);
@@ -540,10 +553,10 @@ function buildReport(summary) {
   const seeds = session.items.flatMap(it => it.cycles.filter(c => c.seed && c.posCount).map(c => c.seed));
   L.push("RESULT");
   L.push(session.items.length && discharged.length === session.items.length
-    ? `Somatics discharged: ${discharged.length} of ${session.items.length}, all intensity zero.`
-    : `Somatics discharged: ${discharged.length} of ${session.items.length}.`);
+    ? `${session.mode.noun} discharged: ${discharged.length} of ${session.items.length}, all intensity zero.`
+    : `${session.mode.noun} discharged: ${discharged.length} of ${session.items.length}.`);
   session.items.filter(it => !discharged.includes(it)).forEach(it =>
-    L.push(`  Still open: ${it.location} (last intensity ${it.cycles.length ? last(it.cycles).after : it.start})`));
+    L.push(`  Still open: ${it.name || it.location} (last intensity ${it.cycles.length ? last(it.cycles).after : it.start})`));
   L.push("", "Counter-intentions erased (canceled):", ...(counters.length ? counters.map(c => `  ✕ ${c}`) : ["  none"]));
   L.push("", "Positive seeds planted:", ...(seeds.length ? seeds.map(s => `  ✓ ${s}`) : ["  none"]));
   const u = session.usage, cost = u.input * PRICE_IN + u.output * PRICE_OUT;
@@ -596,7 +609,8 @@ const ui = {
         : "Voice input isn't available in this browser. You can type your answers. On iPhone use Safari; on Android use Chrome."}</p>`}
       <span class="spacer"></span>
       <div class="row small muted"><span>${esc(user.email)} · version ${esc(APP_VERSION)}</span><span class="spacer"></span><button class="quiet small" id="voicebtn">Voice</button><button class="quiet small" id="pwchange">Change password</button><button class="quiet small" id="out">Sign out</button></div>`;
-    $app.querySelector('[data-id="somatic_light"]').onclick = () => { unlockSpeech(); runSession(); };
+    for (const m of MODES.filter(m => m.ready))
+      $app.querySelector(`[data-id="${m.id}"]`).onclick = () => { unlockSpeech(); runSession(m); };
     document.getElementById("hist").onclick = () => ui.history();
     document.getElementById("out").onclick = async () => { await sb.auth.signOut(); ui.signIn(); };
     document.getElementById("pwchange").onclick = () => ui.changePassword();
@@ -711,11 +725,11 @@ const ui = {
   async history() {
     $app.innerHTML = `<div class="row"><h1>Past sessions</h1><span class="spacer"></span><button class="quiet small" id="back">Back</button></div><div class="stack list" id="list"><p class="muted">Loading...</p></div>`;
     document.getElementById("back").onclick = () => ui.menu();
-    const { data, error } = await sb.from("auditor_sessions").select("id, started_at, outcome, report").order("started_at", { ascending: false }).limit(50);
+    const { data, error } = await sb.from("auditor_sessions").select("id, mode, started_at, outcome, report").order("started_at", { ascending: false }).limit(50);
     const list = document.getElementById("list");
     if (error) { list.innerHTML = `<p class="err">Couldn't load sessions. Check your connection and try again.</p>`; return; }
     if (!data.length) { list.innerHTML = `<p class="muted">No sessions yet. Your first one will show up here.</p>`; return; }
-    list.innerHTML = data.map(s => `<button data-id="${s.id}"><b>${new Date(s.started_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</b><br><span class="muted small">${esc(s.outcome || "not finished")}</span></button>`).join("");
+    list.innerHTML = data.map(s => `<button data-id="${s.id}"><b>${new Date(s.started_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</b><br><span class="muted small">${esc(MODES.find(m => m.id === s.mode)?.name || "")} · ${esc(s.outcome || "not finished")}</span></button>`).join("");
     list.querySelectorAll("button").forEach(b => b.onclick = () => {
       const s = data.find(x => x.id === b.dataset.id);
     if (!s) return;
