@@ -83,7 +83,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-163122"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-163947"; // stamped by publish-phone-app.sh on every publish
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -248,7 +248,7 @@ const MAX_CYCLES = 15;
 // ---------------------------------------------------------------- parsing (no AI)
 const NUM = { zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10 };
 // Cheap check before asking the AI whether the person asked the app something.
-const QUESTION_START = /^(what|why|how|who|where|when|which|can|could|would|should|will|is|are|am|do|does|did|was|were|tell me|explain|i have a question|question)/;
+const QUESTION_START = /^(what|why|how|who|where|when|which|can|could|would|should|will|is|are|am|do|does|did|was|were|tell me|explain|i have a question|question|i don't understand|i do not understand|i'm confused|i am confused|repeat|say that again|huh|pardon|sorry what)\b/;
 const looksLikeQuestion = t => !!t && (t.trim().endsWith("?") || QUESTION_START.test(t.trim().toLowerCase()));
 const words = t => t.toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
 function parseNumber(t) {
@@ -464,9 +464,16 @@ async function ai(task, payload, timeoutMs) {
 }
 
 // ---------------------------------------------------------------- the procedure
-// questions: false where the answer itself may sound like a question (a counter-intention like "why me?").
-async function ask(line, { reflect = false, questions = true } = {}) {
-  let spoken = session.ack ? `${session.ack} ${line}` : line;
+// What the AI needs to answer a question the person asks mid-session.
+const qaPayload = (line, answer) => ({ question: line, answer, mode: modeTitle(session.mode), concepts: [DEFINITIONS, ...TRUTH] });
+const MAX_QUESTIONS = 3; // per app question, so a misheard answer can't loop forever
+
+// Asks one question and returns the answer. If the person asks the app something instead of answering,
+// the AI answers it fully, then the same question is asked again before moving on.
+// lead: spoken before the question. questions: false where the answer itself may sound like a question
+// (a counter-intention like "why me?").
+async function ask(line, { reflect = false, questions = true, lead = "" } = {}) {
+  let spoken = [session.ack, lead, line].filter(Boolean).join(" ");
   session.ack = "";
   for (let asked = 0; ; asked++) {
     await say(spoken);
@@ -475,40 +482,47 @@ async function ask(line, { reflect = false, questions = true } = {}) {
     session.transcript.push({ q: line, a: answer });
     if (isStop(answer)) throw new Stopped();
     if (isDistress(answer)) throw new Distress();
-    // The person asked the app something: answer it briefly, then ask the same question again.
-    if (questions && asked < 3 && session.aiOn && looksLikeQuestion(answer)) {
-      ui.status("thinking");
-      const r = await ai("answer", { question: line, asked: answer, mode: modeTitle(session.mode), concepts: [DEFINITIONS, ...TRUTH] }, 12000);
-      if (r && r.distress) throw new Distress();
-      if (r && r.is_question && typeof r.reply === "string" && r.reply) {
-        session.transcript.push({ q: "(answer to their question)", a: r.reply });
-        spoken = `${r.reply.slice(0, 400)} ${S.CONTINUE} ${line}`;
-        continue;
-      }
+    if (!answer || !session.aiOn) return answer;
+    const canAnswer = questions && asked < MAX_QUESTIONS;
+    // Steps with an echo-back check every answer; other steps only check ones that look like a question.
+    const task = reflect ? "reflect" : canAnswer && looksLikeQuestion(answer) ? "answer" : null;
+    if (!task) return answer;
+    ui.status("thinking");
+    const r = await ai(task, qaPayload(line, answer), 12000);
+    if (r && r.distress) throw new Distress();
+    if (canAnswer && r && r.is_question && typeof r.reply === "string" && r.reply) {
+      session.transcript.push({ q: "(answer to their question)", a: r.reply });
+      spoken = `${r.reply.slice(0, 600)} ${S.CONTINUE} ${line}`;
+      continue;
     }
-    if (reflect && answer) {
-      ui.status("thinking");
-      const r = await ai("reflect", { question: line, answer }, 6000);
-      if (r && r.distress) throw new Distress();
-      if (r && typeof r.ack === "string") session.ack = r.ack.slice(0, 120);
-    }
+    if (reflect && r && typeof r.ack === "string") session.ack = r.ack.slice(0, 120);
     return answer;
   }
 }
 
+// Asks until it gets a number or a yes/no. A question from the person gets answered, then the same
+// question is asked again; it doesn't count as one of the three tries.
 async function askParsed(line, parse, kind) {
-  let prompt = line;
-  for (let i = 0; i < 3; i++) {
-    const answer = await ask(prompt);
+  let lead = "", questions = 0;
+  for (let tries = 0; tries < 3; tries++) {
+    const answer = await ask(line, { lead });
+    lead = "";
     let v = parse(answer);
-    if (v === null && answer) {
+    if (v === null && answer && session.aiOn) {
       ui.status("thinking");
-      const r = await ai("classify", { question: line, answer, kind }, 5000);
+      const r = await ai("classify", { ...qaPayload(line, answer), kind }, 12000);
+      if (r && r.distress) throw new Distress();
+      if (r && r.is_question && typeof r.reply === "string" && r.reply && questions++ < MAX_QUESTIONS) {
+        session.transcript.push({ q: "(answer to their question)", a: r.reply });
+        lead = `${r.reply.slice(0, 600)} ${S.CONTINUE}`;
+        tries--;
+        continue;
+      }
       if (r && r.value !== null && r.value !== undefined) v = kind === "number" ? Math.max(0, Math.min(10, Math.round(+r.value))) : !!r.value;
       if (Number.isNaN(v)) v = null;
     }
     if (v !== null) return v;
-    prompt = `${S.REPEAT_Q} ${line}`;
+    lead = S.REPEAT_Q;
   }
   return kind === "number" ? 5 : true; // keep going rather than trap the person
 }
