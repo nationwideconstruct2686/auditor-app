@@ -81,6 +81,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
+const APP_VERSION = "20261101-001717"; // stamped by publish-phone-app.sh on every publish
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -594,7 +595,7 @@ const ui = {
         : IS_SAMSUNG_BROWSER ? "Voice input doesn't work in Samsung Internet. Open this link in Chrome for voice, or type your answers."
         : "Voice input isn't available in this browser. You can type your answers. On iPhone use Safari; on Android use Chrome."}</p>`}
       <span class="spacer"></span>
-      <div class="row small muted"><span>${esc(user.email)}</span><span class="spacer"></span><button class="quiet small" id="voicebtn">Voice</button><button class="quiet small" id="pwchange">Change password</button><button class="quiet small" id="out">Sign out</button></div>`;
+      <div class="row small muted"><span>${esc(user.email)} · version ${esc(APP_VERSION)}</span><span class="spacer"></span><button class="quiet small" id="voicebtn">Voice</button><button class="quiet small" id="pwchange">Change password</button><button class="quiet small" id="out">Sign out</button></div>`;
     $app.querySelector('[data-id="somatic_light"]').onclick = () => { unlockSpeech(); runSession(); };
     document.getElementById("hist").onclick = () => ui.history();
     document.getElementById("out").onclick = async () => { await sb.auth.signOut(); ui.signIn(); };
@@ -725,6 +726,19 @@ const ui = {
 };
 
 sb.auth.getSession().then(({ data }) => data.session ? ui.menu() : ui.signIn());
+
+// Phones keep a saved copy of the app. Check for a newer published version on open and whenever
+// the app comes back on screen, and reload into it, but never in the middle of a session.
+async function checkForUpdate() {
+  if (APP_VERSION === "dev" || session) return;
+  try {
+    const res = await fetch(location.pathname + "?check=" + Date.now(), { cache: "no-store" });
+    const live = (await res.text()).match(/const APP_VERSION = "20261101-001717"]+)"/);
+    if (live && live[1] !== APP_VERSION && !session) location.replace(location.pathname + "?v=" + live[1]);
+  } catch {}
+}
+checkForUpdate();
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkForUpdate(); });
 </script>
 </body>
 </html>
