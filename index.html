@@ -81,7 +81,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-140729"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-140927"; // stamped by publish-phone-app.sh on every publish
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -89,7 +89,7 @@ const S = {
   REVIEW_WAIT: "Take your time. When you're ready, say: yes, I'm ready.",
   READY: "Are you ready to begin the session?",
   NOT_READY: "That's fine. Come back whenever you're ready.",
-  START: "Do you have any negative emotion or somatic right now?",
+  START: "Do you have any somatics you want to process right now? Pain, discomfort, or negative body sensations.",
   LOCATE: "Where do you feel it in your body?",
   INTENSITY: "On a scale of 1 to 10, what is the intensity?",
   PERCEPTICS: [
@@ -111,7 +111,7 @@ const S = {
   REPEAT_POS: "Now say this ten times: ",
   CHECK: "Go back to the feeling. On a scale of 0 to 10, what is the intensity now?",
   AGAIN: "Okay. Let's look at it again.",
-  ITEM_DONE: "That one is discharged. Is there any other negative emotion or somatic?",
+  ITEM_DONE: "That one is discharged. Is there any other somatic you want to process?",
   NONE_START: "Okay. We can stop here.",
   END: "Session complete. Well done.",
   DISTRESS: "Let's pause here. If you are in crisis or thinking about hurting yourself, please reach out for help right now. In the US, call or text 988.",
