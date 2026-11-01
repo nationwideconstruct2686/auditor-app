@@ -1,6 +1,6 @@
 {
-  "name": "Auditor",
-  "short_name": "Auditor",
+  "name": "Processing App",
+  "short_name": "Processing",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#1d2a2e",

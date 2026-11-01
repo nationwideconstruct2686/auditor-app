@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Auditor</title>
+<title>Processing App</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Auditor">
+<meta name="apple-mobile-web-app-title" content="Processing">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1d2a2e">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -558,7 +558,7 @@ const MIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-w
 const ui = {
   signIn(msg = "", isSignUp = false) {
     $app.innerHTML = `
-      <div class="stack"><h1>Auditor</h1><p class="muted">Sign in to start a session. Your sessions are private to you.</p></div>
+      <div class="stack"><h1>Processing App</h1><p class="muted">Sign in to start a session. Your sessions are private to you.</p></div>
       <form id="auth" class="stack panel">
         <div class="stack"><label for="email">Email</label><input id="email" type="email" autocomplete="email" required></div>
         <div class="stack"><label for="pw">Password</label><input id="pw" type="password" autocomplete="${isSignUp ? "new-password" : "current-password"}" minlength="6" required></div>
@@ -583,7 +583,7 @@ const ui = {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return ui.signIn();
     $app.innerHTML = `
-      <div class="row"><h1>Auditor</h1><span class="spacer"></span><button class="quiet small" id="hist">Past sessions</button></div>
+      <div class="row"><h1>Processing App</h1><span class="spacer"></span><button class="quiet small" id="hist">Past sessions</button></div>
       <p class="muted">Choose a style of auditing.</p>
       <div class="stack">${MODES.map(m => `
         <button class="mode" data-id="${m.id}" ${m.ready ? "" : "disabled"}>
