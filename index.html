@@ -81,7 +81,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-141656"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-141845"; // stamped by publish-phone-app.sh on every publish
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -204,10 +204,10 @@ const GROUPS = [
   { id: "memory", name: "Deep Processing", desc: "Draws it up by describing the situation, and processes past memories." },
 ];
 const MODES = [
-  { id: "somatic_light", group: "light", name: "Somatic Processing Light", desc: "Find the counter-intention, neutralize it, replace it with an absolute truth, and reduce the somatic to zero.", ready: true,
+  { id: "somatic_light", group: "light", name: "Light Somatic Processing", desc: "Find the counter-intention, neutralize it, replace it with an absolute truth, and reduce the somatic to zero.", ready: true,
     noun: "Somatics" },
-  { id: "negative_emotion", group: "light", name: "Negative Emotion Processing", desc: "Find the counter-intention, neutralize it, replace it with an absolute truth, and reduce the negative emotion to zero.", ready: true, ...EMOTION },
-  { id: "feelings", group: "light", name: "Limiting Feelings Processing", desc: "Find the counter-intention, neutralize it, replace it with an absolute truth, and reduce the limiting feeling to zero.", ready: true, ...FEELING },
+  { id: "negative_emotion", group: "light", name: "Light Negative Emotion Processing", desc: "Find the counter-intention, neutralize it, replace it with an absolute truth, and reduce the negative emotion to zero.", ready: true, ...EMOTION },
+  { id: "feelings", group: "light", name: "Light Limiting Feelings Processing", desc: "Find the counter-intention, neutralize it, replace it with an absolute truth, and reduce the limiting feeling to zero.", ready: true, ...FEELING },
   { id: "somatic_memory", group: "memory", name: "Somatic Processing with Memory Retrieval", desc: "Draws up a somatic, reduces it, processes any memory that comes up, neutralizes the counter-intentions and replaces them with absolute truths.", ready: true,
     memory: true, noun: "Somatics",
     draw: { DESCRIBE: "Describe a time you had a pain or discomfort in your body. What was the situation?", MORE: DRAW_MORE,
