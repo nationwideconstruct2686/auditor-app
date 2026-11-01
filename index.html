@@ -81,7 +81,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-133606"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-134532"; // stamped by publish-phone-app.sh on every publish
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -140,6 +140,25 @@ const EXTRA = {
 };
 const EXTRAS_PER_CYCLE = 3;
 
+// Memory processing: name the memory, go to its beginning, perceptics, go through to the end,
+// then back to the beginning, over and over until the memory has no charge left.
+const MEM = {
+  ANY: "Is there a memory here?",
+  WHAT: "What is the memory? Give it a short name.",
+  CHARGE: "On a scale of 1 to 10, how much charge does the memory have?",
+  BEGIN: "Go to the beginning of the memory.",
+  PERCEPTICS: [
+    ["see", "What do you see?"], ["hear", "What do you hear?"], ["smell", "What do you smell?"],
+    ["taste", "What do you taste?"], ["touch", "What do you feel touching you?"],
+    ["emotion", "What emotion is there?"], ["where", "Where are you?"],
+  ],
+  THROUGH: "Go through the memory to the end. Tell me what happens.",
+  CHECK: "On a scale of 0 to 10, how much charge does the memory have now?",
+  AGAIN: "Okay. Go back to the beginning of the memory.",
+  BACK: "Okay. Go back to the feeling.",
+};
+const MAX_PASSES = 15;
+
 // Requirements shown on screen before every session. The person reads them, then confirms twice.
 const REQUIREMENTS = [
   "You're not so hungry that it would distract you.",
@@ -153,22 +172,37 @@ const REQUIREMENTS = [
   "You want to begin the session right now.",
 ];
 
-// Each ready mode runs the same procedure; "lines" swaps the wording, "name_q" asks what the item is first.
-const MODES = [
-  { id: "somatic_light", name: "Somatic Processing Light", desc: "Reduce a somatic to zero. No memory work.", ready: true,
-    noun: "Somatics" },
-  { id: "somatic_memory", name: "Somatic Processing with Memory", desc: "Somatic processing with memory retrieval.", ready: false },
-  { id: "negative_emotion", name: "Negative Emotion Processing", desc: "Reduce a negative emotion to zero. No memory work.", ready: true,
-    noun: "Negative emotions", name_q: "What is the emotion?",
-    lines: { START: "Do you have any negative emotion right now?",
-             ITEM_DONE: "That one is discharged. Is there any other negative emotion?" } },
-  { id: "feelings", name: "Feelings Processing", desc: "Reduce an unwanted feeling to zero. No memory work.", ready: true,
-    noun: "Feelings", name_q: "What is the feeling?",
-    lines: { START: "Is there a feeling you want to process right now?",
-             ITEM_DONE: "That one is discharged. Is there any other feeling?" } },
-  { id: "memory_full", name: "Full Memory Processing Method", desc: "Complete discharge on one memory at a time. No chains.", ready: false },
-  { id: "chains", name: "Chain Processing Method", desc: "Process each memory and get to the earliest one in the chain.", ready: false },
+// "light" modes never go into memories. "memory" modes ask "Is there a memory here?" before the
+// counter-intention and process the memory on a yes. "lines" swaps the wording, "name_q" asks
+// what the item is first, item: "memory" runs memories only.
+// An emotion is something you're emoting (anger, worry, fear, boredom). A feeling is something
+// you're getting ("I have a feeling we aren't attracting the right clients").
+const EMOTION = { noun: "Negative emotions", name_q: "What is the emotion?",
+  lines: { START: "Do you have any negative emotion right now, like anger, worry, fear or boredom?",
+           ITEM_DONE: "That one is discharged. Is there any other negative emotion?" } };
+const FEELING = { noun: "Limiting feelings", name_q: "Describe the feeling you're getting.",
+  lines: { START: "Do you have a limiting feeling right now? Something like: I have a feeling we aren't attracting the right clients.",
+           ITEM_DONE: "That one is discharged. Is there any other limiting feeling?" } };
+const GROUPS = [
+  { id: "light", name: "Light", desc: "No memory work. Reduce a somatic, emotion or feeling to zero." },
+  { id: "memory", name: "Memory Retrieval", desc: "Processing that goes into memories and discharges them." },
 ];
+const MODES = [
+  { id: "somatic_light", group: "light", name: "Somatic Processing Light", desc: "Reduce a somatic to zero. No memory work.", ready: true,
+    noun: "Somatics" },
+  { id: "negative_emotion", group: "light", name: "Negative Emotion Processing", desc: "Reduce an emotion like anger, worry, fear or boredom to zero.", ready: true, ...EMOTION },
+  { id: "feelings", group: "light", name: "Limiting Feelings Processing", desc: "Reduce a limiting feeling you're getting to zero.", ready: true, ...FEELING },
+  { id: "somatic_memory", group: "memory", name: "Somatic Processing with Memory Retrieval", desc: "Somatic processing. When a memory comes up, process it.", ready: true,
+    memory: true, noun: "Somatics" },
+  { id: "memory_full", group: "memory", name: "Full Memory Processing Method", desc: "Complete discharge on one memory at a time. No chains.", ready: true,
+    item: "memory", lines: { START: "Is there a memory you want to process?", ITEM_DONE: "That memory is discharged. Is there any other memory you want to process?" } },
+  { id: "chains", group: "memory", name: "Chain Processing Method", desc: "Process each memory and get to the earliest one in the chain.", ready: false },
+  { id: "negative_emotion_memory", group: "memory", name: "Negative Emotion Processing", title: "Negative Emotion Processing with Memory",
+    desc: "Negative emotion processing. When a memory comes up, process it.", ready: true, memory: true, ...EMOTION },
+  { id: "feelings_memory", group: "memory", name: "Limiting Feelings Processing", title: "Limiting Feelings Processing with Memory",
+    desc: "Limiting feelings processing. When a memory comes up, process it.", ready: true, memory: true, ...FEELING },
+];
+const modeTitle = m => m.title || m.name;
 const MAX_CYCLES = 15;
 
 // ---------------------------------------------------------------- parsing (no AI)
@@ -441,6 +475,11 @@ async function runItem() {
     for (const [key, line] of S.PERSONIFY) cyc.perceptics[key] = await ask(line, { reflect: true });
     await say(S.CONTACT);
     session.transcript.push({ q: S.CONTACT, a: await getAnswer({ autoContinueMs: 15000 }) });
+    if (session.mode.memory && await askParsed(MEM.ANY, parseYesNo, "yesno")) {
+      cyc.memory = { name: null, start: null, passes: [] };
+      await processMemory(cyc.memory);
+      await say(MEM.BACK);
+    }
     cyc.counter = cleanPhrase(await ask(S.VOICE));
     cyc.negCount = await repeatTen(S.REPEAT_NEG, cyc.counter);
     await say(S.CANCEL);
@@ -452,6 +491,31 @@ async function runItem() {
     if (cyc.after === 0) return;
     await say(S.AGAIN);
   }
+}
+
+// Takes one memory through until it has no charge left. Fills in mem as it goes so progress saves.
+async function processMemory(mem) {
+  mem.name = cleanPhrase(await ask(MEM.WHAT, { reflect: true }));
+  mem.start = await askParsed(MEM.CHARGE, parseNumber, "number");
+  if (mem.start === 0) return;
+  for (let p = 0; p < MAX_PASSES; p++) {
+    const pass = { perceptics: {}, story: null, after: null };
+    mem.passes.push(pass);
+    const line = p ? MEM.AGAIN : MEM.BEGIN;
+    await say(line);
+    session.transcript.push({ q: line, a: await getAnswer({ autoContinueMs: 10000 }) });
+    for (const [key, q] of MEM.PERCEPTICS) pass.perceptics[key] = await ask(q, { reflect: true });
+    pass.story = await ask(MEM.THROUGH, { reflect: true });
+    pass.after = await askParsed(MEM.CHECK, parseNumber, "number");
+    saveProgress();
+    if (pass.after === 0) return;
+  }
+}
+
+async function runMemoryItem() {
+  const mem = { name: null, start: null, passes: [] };
+  session.memories.push(mem);
+  await processMemory(mem);
 }
 
 // Haiku picks which extra perceptics fit; if it can't answer, rotate through the ones not asked yet.
@@ -489,7 +553,7 @@ async function runChecklist() {
 
 async function runSession(mode) {
   Object.assign(S, S_BASE, mode.lines);
-  session = { mode, id: null, started: new Date(), items: [], outcome: "completed", ack: "", pending: null,
+  session = { mode, id: null, started: new Date(), items: [], memories: [], outcome: "completed", ack: "", pending: null,
               transcript: [], checklist: [], usage: { input: 0, output: 0, calls: 0 } };
   ui.sessionScreen();
   try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
@@ -500,7 +564,7 @@ async function runSession(mode) {
     else if (!(await askParsed(S.START, parseYesNo, "yesno"))) { session.outcome = "no charge present"; await say(S.NONE_START); }
     else {
       while (true) {
-        await runItem();
+        await (mode.item === "memory" ? runMemoryItem() : runItem());
         if (!(await askParsed(S.ITEM_DONE, parseYesNo, "yesno"))) break;
       }
       await say(S.END);
@@ -513,7 +577,7 @@ async function runSession(mode) {
   try { wakeLock?.release(); } catch {}
   ui.status("thinking"); ui.question("Saving your session...");
   let summary = null;
-  if (session.items.length) summary = await ai("summary", { log: logData() }, 20000);
+  if (session.items.length || session.memories.length) summary = await ai("summary", { log: logData() }, 20000);
   const report = buildReport(summary);
   await sb.from("auditor_sessions").update({ ended_at: new Date().toISOString(), outcome: session.outcome, log: logData(), report }).eq("id", session.id);
   const s = session; session = null;
@@ -522,7 +586,7 @@ async function runSession(mode) {
 let wakeLock = null;
 
 function logData() {
-  return { checklist: session.checklist, items: session.items, usage: session.usage, started: session.started.toISOString() };
+  return { mode: session.mode.id, checklist: session.checklist, items: session.items, memories: session.memories, usage: session.usage, started: session.started.toISOString() };
 }
 async function saveProgress() {
   if (session?.id) sb.from("auditor_sessions").update({ log: logData() }).eq("id", session.id).then(() => {});
@@ -530,7 +594,7 @@ async function saveProgress() {
 
 function buildReport(summary) {
   const fmt = d => d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-  const L = [`${session.mode.name} Session`, `${fmt(session.started)}  ·  ${session.outcome}`, ""];
+  const L = [`${modeTitle(session.mode)} Session`, `${fmt(session.started)}  ·  ${session.outcome}`, ""];
   if (summary) L.push(summary, "");
   if (session.checklist.length) {
     L.push("READINESS");
@@ -542,26 +606,42 @@ function buildReport(summary) {
     it.cycles.forEach((c, j) => {
       L.push(`  Cycle ${j + 1}`);
       for (const [k, v] of Object.entries(c.perceptics)) L.push(`    ${k}: ${v}`);
+      if (c.memory) L.push(...memoryLines(c.memory, "    "));
       if (c.counter) L.push(`    Counter-intention: "${c.counter}" (said ${c.negCount}x, canceled)`);
       if (c.seed) L.push(`    Seed: "${c.seed}" (said ${c.posCount}x)`);
       if (c.after !== null) L.push(`    Intensity after: ${c.after}`);
     });
     L.push("");
   });
+  session.memories.forEach((m, i) => L.push(...memoryLines(m, "", i + 1), ""));
+  const memories = [...session.memories, ...session.items.flatMap(it => it.cycles.filter(c => c.memory).map(c => c.memory))];
+  const memDone = memories.filter(m => m.start === 0 || (m.passes.length && last(m.passes).after === 0));
   const discharged = session.items.filter(it => it.cycles.length && last(it.cycles).after === 0);
   const counters = session.items.flatMap(it => it.cycles.filter(c => c.counter && c.negCount).map(c => c.counter));
   const seeds = session.items.flatMap(it => it.cycles.filter(c => c.seed && c.posCount).map(c => c.seed));
   L.push("RESULT");
-  L.push(session.items.length && discharged.length === session.items.length
+  if (memories.length) L.push(`Memories discharged: ${memDone.length} of ${memories.length}.`);
+  if (session.mode.item !== "memory") L.push(session.items.length && discharged.length === session.items.length
     ? `${session.mode.noun} discharged: ${discharged.length} of ${session.items.length}, all intensity zero.`
     : `${session.mode.noun} discharged: ${discharged.length} of ${session.items.length}.`);
   session.items.filter(it => !discharged.includes(it)).forEach(it =>
     L.push(`  Still open: ${it.name || it.location} (last intensity ${it.cycles.length ? last(it.cycles).after : it.start})`));
-  L.push("", "Counter-intentions erased (canceled):", ...(counters.length ? counters.map(c => `  ✕ ${c}`) : ["  none"]));
-  L.push("", "Positive seeds planted:", ...(seeds.length ? seeds.map(s => `  ✓ ${s}`) : ["  none"]));
+  if (session.mode.item !== "memory") L.push("", "Counter-intentions erased (canceled):", ...(counters.length ? counters.map(c => `  ✕ ${c}`) : ["  none"]));
+  if (session.mode.item !== "memory") L.push("", "Positive seeds planted:", ...(seeds.length ? seeds.map(s => `  ✓ ${s}`) : ["  none"]));
   const u = session.usage, cost = u.input * PRICE_IN + u.output * PRICE_OUT;
   L.push("", `AI use: ${u.calls} calls, ${u.input} tokens in, ${u.output} tokens out, about $${cost.toFixed(4)}`);
   return L.join("\n");
+}
+
+function memoryLines(m, pad, n) {
+  const L = [`${pad}${n ? `MEMORY ${n}` : "Memory"}: ${m.name || "(not named)"}`, `${pad}  Starting charge: ${m.start ?? "-"}`];
+  m.passes.forEach((p, j) => {
+    L.push(`${pad}  Pass ${j + 1}`);
+    for (const [k, v] of Object.entries(p.perceptics)) L.push(`${pad}    ${k}: ${v}`);
+    if (p.story) L.push(`${pad}    What happens: ${p.story}`);
+    if (p.after !== null) L.push(`${pad}    Charge after: ${p.after}`);
+  });
+  return L;
 }
 
 // ---------------------------------------------------------------- screens
@@ -599,22 +679,32 @@ const ui = {
     $app.innerHTML = `
       <div class="row"><h1>Processing App</h1><span class="spacer"></span><button class="quiet small" id="hist">Past sessions</button></div>
       <p class="muted">Choose a style of processing.</p>
-      <div class="stack">${MODES.map(m => `
-        <button class="mode" data-id="${m.id}" ${m.ready ? "" : "disabled"}>
-          <b>${esc(m.name)}</b><span>${esc(m.desc)}</span>${m.ready ? "" : '<span class="soon">Coming later</span>'}
-        </button>`).join("")}</div>
+      <div class="stack">${GROUPS.map(g => `
+        <button class="mode" data-group="${g.id}"><b>${esc(g.name)}</b><span>${esc(g.desc)}</span></button>`).join("")}</div>
       ${SR ? "" : `<p class="small err">${
         IS_IOS && IS_STANDALONE ? "Voice input doesn't work from the home screen on this iPhone. Open the app in Safari for voice, or type your answers."
         : IS_SAMSUNG_BROWSER ? "Voice input doesn't work in Samsung Internet. Open this link in Chrome for voice, or type your answers."
         : "Voice input isn't available in this browser. You can type your answers. On iPhone use Safari; on Android use Chrome."}</p>`}
       <span class="spacer"></span>
       <div class="row small muted"><span>${esc(user.email)} · version ${esc(APP_VERSION)}</span><span class="spacer"></span><button class="quiet small" id="voicebtn">Voice</button><button class="quiet small" id="pwchange">Change password</button><button class="quiet small" id="out">Sign out</button></div>`;
-    for (const m of MODES.filter(m => m.ready))
-      $app.querySelector(`[data-id="${m.id}"]`).onclick = () => { unlockSpeech(); runSession(m); };
+    for (const g of GROUPS) $app.querySelector(`[data-group="${g.id}"]`).onclick = () => ui.group(g);
     document.getElementById("hist").onclick = () => ui.history();
     document.getElementById("out").onclick = async () => { await sb.auth.signOut(); ui.signIn(); };
     document.getElementById("pwchange").onclick = () => ui.changePassword();
     document.getElementById("voicebtn").onclick = () => ui.voices();
+  },
+
+  group(g) {
+    $app.innerHTML = `
+      <div class="row"><h1>${esc(g.name)}</h1><span class="spacer"></span><button class="quiet small" id="back">Back</button></div>
+      <p class="muted">Choose a style of processing.</p>
+      <div class="stack">${MODES.filter(m => m.group === g.id).map(m => `
+        <button class="mode" data-id="${m.id}" ${m.ready ? "" : "disabled"}>
+          <b>${esc(m.name)}</b><span>${esc(m.desc)}</span>${m.ready ? "" : '<span class="soon">Coming later</span>'}
+        </button>`).join("")}</div>`;
+    document.getElementById("back").onclick = () => ui.menu();
+    for (const m of MODES.filter(m => m.group === g.id && m.ready))
+      $app.querySelector(`[data-id="${m.id}"]`).onclick = () => { unlockSpeech(); runSession(m); };
   },
 
   voices() {
@@ -729,7 +819,7 @@ const ui = {
     const list = document.getElementById("list");
     if (error) { list.innerHTML = `<p class="err">Couldn't load sessions. Check your connection and try again.</p>`; return; }
     if (!data.length) { list.innerHTML = `<p class="muted">No sessions yet. Your first one will show up here.</p>`; return; }
-    list.innerHTML = data.map(s => `<button data-id="${s.id}"><b>${new Date(s.started_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</b><br><span class="muted small">${esc(MODES.find(m => m.id === s.mode)?.name || "")} · ${esc(s.outcome || "not finished")}</span></button>`).join("");
+    list.innerHTML = data.map(s => `<button data-id="${s.id}"><b>${new Date(s.started_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</b><br><span class="muted small">${esc(modeTitle(MODES.find(m => m.id === s.mode) || { name: "" }))} · ${esc(s.outcome || "not finished")}</span></button>`).join("");
     list.querySelectorAll("button").forEach(b => b.onclick = () => {
       const s = data.find(x => x.id === b.dataset.id);
     if (!s) return;
