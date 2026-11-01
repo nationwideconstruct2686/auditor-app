@@ -81,7 +81,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-135600"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-140517"; // stamped by publish-phone-app.sh on every publish
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -192,25 +192,25 @@ const GROUPS = [
   { id: "memory", name: "Deep Processing", desc: "Draws it up by describing the situation, and processes past memories." },
 ];
 const MODES = [
-  { id: "somatic_light", group: "light", name: "Somatic Processing Light", desc: "Reduce a somatic to zero. No memory work.", ready: true,
+  { id: "somatic_light", group: "light", name: "Somatic Processing Light", desc: "Find the counter-intention, neutralize it, replace it with an absolute truth, and reduce the somatic to zero.", ready: true,
     noun: "Somatics" },
-  { id: "negative_emotion", group: "light", name: "Negative Emotion Processing", desc: "Reduce an emotion like anger, worry, fear or boredom to zero.", ready: true, ...EMOTION },
-  { id: "feelings", group: "light", name: "Limiting Feelings Processing", desc: "Reduce a limiting feeling you're getting to zero.", ready: true, ...FEELING },
-  { id: "somatic_memory", group: "memory", name: "Somatic Processing with Memory Retrieval", desc: "Draws up a somatic, and processes any memory that comes up.", ready: true,
+  { id: "negative_emotion", group: "light", name: "Negative Emotion Processing", desc: "Find the counter-intention, neutralize it, replace it with an absolute truth, and reduce the negative emotion to zero.", ready: true, ...EMOTION },
+  { id: "feelings", group: "light", name: "Limiting Feelings Processing", desc: "Find the counter-intention, neutralize it, replace it with an absolute truth, and reduce the limiting feeling to zero.", ready: true, ...FEELING },
+  { id: "somatic_memory", group: "memory", name: "Somatic Processing with Memory Retrieval", desc: "Draws up a somatic, reduces it, processes any memory that comes up, neutralizes the counter-intentions and replaces them with absolute truths.", ready: true,
     memory: true, noun: "Somatics",
     draw: { DESCRIBE: "Describe a time you had a pain or discomfort in your body. What was the situation?", MORE: DRAW_MORE,
             HAVE: "Do you feel it in your body right now?" } },
-  { id: "memory_full", group: "memory", name: "Full Memory Processing Method", desc: "Complete discharge on one memory at a time. No chains.", ready: true,
+  { id: "memory_full", group: "memory", name: "Full Memory Processing Method", desc: "Complete discharge of one memory at a time, neutralizing counter-intentions and replacing them with absolute truths.", ready: true,
     item: "memory", lines: { START: "Is there a memory you want to process?", ITEM_DONE: "That memory is discharged. Is there any other memory you want to process?" },
     draw: { DESCRIBE: "Describe a situation from your past that still bothers you.", MORE: DRAW_MORE,
             HAVE: "Is there a memory there you want to process now?" } },
   { id: "chains", group: "memory", name: "Chain Processing Method", desc: "Process each memory and get to the earliest one in the chain.", ready: false },
   { id: "negative_emotion_memory", group: "memory", name: "Negative Emotion Processing", title: "Deep Negative Emotion Processing",
-    desc: "Draws up a negative emotion, and processes any memory that comes up.", ready: true, memory: true, ...EMOTION,
+    desc: "Draws up a negative emotion, neutralizes the counter-intentions, and processes any memories that come up.", ready: true, memory: true, ...EMOTION,
     draw: { DESCRIBE: "Describe a time you felt a negative emotion like anger, worry, fear or boredom. What was the situation?", MORE: DRAW_MORE,
             HAVE: "Do you have that emotion right now?" } },
   { id: "feelings_memory", group: "memory", name: "Limiting Feelings Processing", title: "Deep Limiting Feelings Processing",
-    desc: "Draws up a limiting feeling, and processes any memory that comes up.", ready: true, memory: true, ...FEELING,
+    desc: "Draws up a limiting feeling, neutralizes any counter-intentions, processes any memory that comes up, and replaces the counter-intentions with absolute truths.", ready: true, memory: true, ...FEELING,
     draw: { DESCRIBE: "Describe a situation where you got a limiting feeling. What was happening?", MORE: DRAW_MORE,
             HAVE: "Are you getting that feeling right now?" } },
 ];
@@ -493,12 +493,7 @@ async function runItem() {
       await processMemory(cyc.memory);
       await say(MEM.BACK);
     }
-    cyc.counter = cleanPhrase(await ask(S.VOICE));
-    cyc.negCount = await repeatTen(S.REPEAT_NEG, cyc.counter);
-    await say(S.CANCEL);
-    await getAnswer({ autoContinueMs: 7000 });
-    cyc.seed = cleanPhrase(await ask(S.REPLACE));
-    cyc.posCount = await repeatTen(S.REPEAT_POS, cyc.seed);
+    await neutralize(cyc);
     cyc.after = await askParsed(S.CHECK, parseNumber, "number");
     saveProgress();
     if (cyc.after === 0) return;
@@ -524,13 +519,14 @@ async function processMemory(mem) {
   mem.start = await askParsed(MEM.CHARGE, parseNumber, "number");
   if (mem.start === 0) return;
   for (let p = 0; p < MAX_PASSES; p++) {
-    const pass = { perceptics: {}, story: null, after: null };
+    const pass = { perceptics: {}, story: null, counter: null, negCount: 0, seed: null, posCount: 0, after: null };
     mem.passes.push(pass);
     const line = p ? MEM.AGAIN : MEM.BEGIN;
     await say(line);
     session.transcript.push({ q: line, a: await getAnswer({ autoContinueMs: 10000 }) });
     for (const [key, q] of MEM.PERCEPTICS) pass.perceptics[key] = await ask(q, { reflect: true });
     pass.story = await ask(MEM.THROUGH, { reflect: true });
+    if (session.mode.item === "memory") await neutralize(pass);
     pass.after = await askParsed(MEM.CHECK, parseNumber, "number");
     saveProgress();
     if (pass.after === 0) return;
@@ -541,6 +537,16 @@ async function runMemoryItem() {
   const mem = { name: null, situation: null, start: null, passes: [] };
   session.memories.push(mem);
   await processMemory(mem);
+}
+
+// Counter-intention 10x, cancel cancel, then the replacement 10x. Fills in counter/negCount/seed/posCount.
+async function neutralize(rec) {
+  rec.counter = cleanPhrase(await ask(S.VOICE));
+  rec.negCount = await repeatTen(S.REPEAT_NEG, rec.counter);
+  await say(S.CANCEL);
+  await getAnswer({ autoContinueMs: 7000 });
+  rec.seed = cleanPhrase(await ask(S.REPLACE));
+  rec.posCount = await repeatTen(S.REPEAT_POS, rec.seed);
 }
 
 // Haiku picks which extra perceptics fit; if it can't answer, rotate through the ones not asked yet.
@@ -643,8 +649,9 @@ function buildReport(summary) {
   const memories = [...session.memories, ...session.items.flatMap(it => it.cycles.filter(c => c.memory).map(c => c.memory))];
   const memDone = memories.filter(m => m.start === 0 || (m.passes.length && last(m.passes).after === 0));
   const discharged = session.items.filter(it => it.cycles.length && last(it.cycles).after === 0);
-  const counters = session.items.flatMap(it => it.cycles.filter(c => c.counter && c.negCount).map(c => c.counter));
-  const seeds = session.items.flatMap(it => it.cycles.filter(c => c.seed && c.posCount).map(c => c.seed));
+  const recs = [...session.items.flatMap(it => it.cycles), ...memories.flatMap(m => m.passes)];
+  const counters = recs.filter(c => c.counter && c.negCount).map(c => c.counter);
+  const seeds = recs.filter(c => c.seed && c.posCount).map(c => c.seed);
   L.push("RESULT");
   if (memories.length) L.push(`Memories discharged: ${memDone.length} of ${memories.length}.`);
   if (session.mode.item !== "memory") L.push(session.items.length && discharged.length === session.items.length
@@ -652,8 +659,8 @@ function buildReport(summary) {
     : `${session.mode.noun} discharged: ${discharged.length} of ${session.items.length}.`);
   session.items.filter(it => !discharged.includes(it)).forEach(it =>
     L.push(`  Still open: ${it.name || it.location} (last intensity ${it.cycles.length ? last(it.cycles).after : it.start})`));
-  if (session.mode.item !== "memory") L.push("", "Counter-intentions erased (canceled):", ...(counters.length ? counters.map(c => `  ✕ ${c}`) : ["  none"]));
-  if (session.mode.item !== "memory") L.push("", "Positive seeds planted:", ...(seeds.length ? seeds.map(s => `  ✓ ${s}`) : ["  none"]));
+  L.push("", "Counter-intentions erased (canceled):", ...(counters.length ? counters.map(c => `  ✕ ${c}`) : ["  none"]));
+  L.push("", "Positive seeds planted:", ...(seeds.length ? seeds.map(s => `  ✓ ${s}`) : ["  none"]));
   const u = session.usage, cost = u.input * PRICE_IN + u.output * PRICE_OUT;
   L.push("", `AI use: ${u.calls} calls, ${u.input} tokens in, ${u.output} tokens out, about $${cost.toFixed(4)}`);
   return L.join("\n");
@@ -667,6 +674,8 @@ function memoryLines(m, pad, n) {
     L.push(`${pad}  Pass ${j + 1}`);
     for (const [k, v] of Object.entries(p.perceptics)) L.push(`${pad}    ${k}: ${v}`);
     if (p.story) L.push(`${pad}    What happens: ${p.story}`);
+    if (p.counter) L.push(`${pad}    Counter-intention: "${p.counter}" (said ${p.negCount}x, canceled)`);
+    if (p.seed) L.push(`${pad}    Seed: "${p.seed}" (said ${p.posCount}x)`);
     if (p.after !== null) L.push(`${pad}    Charge after: ${p.after}`);
   });
   return L;
