@@ -206,24 +206,35 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let srBlocked = false;
 function srError(e) {
   if (!/not-allowed|service-not-allowed/.test(e.error)) return;
-  srBlocked = true;
-  ui.status("waiting");
-  ui.heard(IS_IOS && IS_STANDALONE
-    ? "Voice input is blocked from the home screen on this iPhone. Type your answers, or open the app in Safari for voice."
-    : IS_SAMSUNG_BROWSER
+  srBlocked = true; // until the next tap on the mic, which counts as permission on iPhone
+  ui.status("waiting"); ui.listening(false);
+  ui.heard(IS_SAMSUNG_BROWSER
     ? "Voice input doesn't work in Samsung Internet. Type your answers, or open the app in Chrome for voice."
-    : "Microphone access is off. Type your answers, or allow the microphone in your browser settings.");
+    : "Tap the mic to talk, or type your answer. If tapping doesn't help, allow the microphone in your phone's settings.");
 }
 let voice = null;
+// Phones list robotic novelty voices (iPhone's Fred, Eddy, Grandpa...). Never pick those on our own.
+const ROBOTIC = /(albert|bad news|bahh|bells|boing|bubbles|cellos|fred|good news|jester|junior|kathy|organ|ralph|superstar|trinoids|whisper|wobble|zarvox|eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley|hysterical)/i;
+function voiceScore(v) {
+  let s = 0;
+  if (ROBOTIC.test(v.name)) s -= 100;
+  if (/premium/i.test(v.name)) s += 50;
+  if (/enhanced/i.test(v.name)) s += 40;
+  if (/natural|neural|online/i.test(v.name)) s += 30;
+  if (/google/i.test(v.name)) s += 20;
+  if (/samantha|ava|allison|susan|nicky|zoe|evan|tom|aria|jenny/i.test(v.name)) s += 15;
+  if (/^en[-_]US/i.test(v.lang)) s += 10; // Android may write "en_US"; Samsung lists many accents
+  if (v.default) s += 5;
+  return s;
+}
+function englishVoices() {
+  return speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang)).sort((a, b) => voiceScore(b) - voiceScore(a));
+}
 function pickVoice() {
-  const vs = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
-  // Prefer the higher-quality downloadable voices when the phone has them.
-  // Android voices may report "en_US" instead of "en-US"; Samsung phones list many English accents.
-  const us = vs.filter(v => /^en[-_]US/i.test(v.lang));
-  voice = us.find(v => /premium|enhanced|natural/i.test(v.name))
-    || vs.find(v => /premium|enhanced|natural/i.test(v.name))
-    || us.find(v => /samantha|google|aria|jenny|zira/i.test(v.name))
-    || us.find(v => v.localService) || us[0] || vs[0] || null;
+  const vs = englishVoices();
+  let saved = null;
+  try { saved = localStorage.getItem("voiceName"); } catch {}
+  voice = (saved && vs.find(v => v.name === saved)) || vs[0] || null;
 }
 if ("speechSynthesis" in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
 const last = arr => arr[arr.length - 1]; // Array.at() is missing on older iOS
@@ -277,27 +288,30 @@ function getAnswer({ autoContinueMs = 0 } = {}) {
       ui.listening(false);
       resolve(text.trim());
     };
-    session.pending = { submit: finish, cancel: () => { settled = true; try { rec && rec.abort(); } catch {} reject(new Stopped()); }, listen: () => start() };
+    session.pending = { submit: finish, cancel: () => { settled = true; try { rec && rec.abort(); } catch {} reject(new Stopped()); },
+                        listen: () => { srBlocked = false; restarts = 0; start(); } };
     if (autoContinueMs) timer = setTimeout(() => finish(""), autoContinueMs);
     function start() {
       if (!SR || srBlocked || settled) { ui.status("waiting"); ui.listening(false); return; }
-      try { rec && rec.abort(); } catch {}
-      rec = new SR(); rec.lang = "en-US"; rec.interimResults = true; rec.continuous = false;
+      const old = rec; rec = null;
+      try { old && old.abort(); } catch {}
+      const me = rec = new SR(); me.lang = "en-US"; me.interimResults = true; me.continuous = false;
       let text = "";
-      rec.onresult = e => {
+      me.onresult = e => {
+        if (rec !== me) return;
         text = Array.from(e.results).map(r => r[0].transcript).join(" ");
         ui.heard(text);
         if (e.results[e.results.length - 1].isFinal) finish(text);
       };
-      rec.onend = () => {
-        if (settled) return;
+      me.onend = () => {
+        if (settled || rec !== me) return; // a replaced listener's end must not touch the new one
         if (text) return finish(text);
-        if (restarts++ < 2) return start();
+        if (!srBlocked && restarts++ < 2) return start();
         ui.status("waiting"); ui.listening(false); // stop auto-listening; the mic button restarts it
       };
-      rec.onerror = srError;
+      me.onerror = e => { if (rec === me) srError(e); };
       ui.status("listening"); ui.listening(true);
-      try { rec.start(); } catch { ui.status("waiting"); }
+      try { me.start(); } catch { ui.status("waiting"); ui.listening(false); }
     }
     start();
   });
@@ -328,24 +342,26 @@ function countTen(phrase) {
       plusOne: () => { base += 1; bump(count + 1); },
       done: finish,
       cancel: () => { settled = true; try { rec && rec.abort(); } catch {} ui.counter(null); reject(new Stopped()); },
-      listen: () => start(),
+      listen: () => { srBlocked = false; start(); },
     };
     show();
     function start() {
-      if (!SR || srBlocked || settled) return;
-      try { rec && rec.abort(); } catch {}
-      rec = new SR(); rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true;
-      const startBase = count; base = startBase;
-      rec.onresult = e => {
+      if (!SR || srBlocked || settled) { ui.listening(false); return; }
+      const old = rec; rec = null;
+      try { old && old.abort(); } catch {}
+      const me = rec = new SR(); me.lang = "en-US"; me.interimResults = true; me.continuous = true;
+      base = count;
+      me.onresult = e => {
+        if (rec !== me) return;
         const text = joinResults(e.results);
         ui.heard(text.split(" ").slice(-12).join(" "));
         if (isStop(text)) { session.pending.cancel(); return; }
         bump(Math.max(count, base + countReps(text, phrase)));
       };
-      rec.onend = () => { if (!settled) start(); }; // phones end continuous listening after a pause
-      rec.onerror = srError;
+      me.onend = () => { if (!settled && rec === me) start(); }; // phones end continuous listening after a pause
+      me.onerror = e => { if (rec === me) srError(e); };
       ui.status("listening"); ui.listening(true);
-      try { rec.start(); } catch {}
+      try { me.start(); } catch { ui.listening(false); }
     }
     start();
   });
@@ -594,11 +610,40 @@ const ui = {
         : IS_SAMSUNG_BROWSER ? "Voice input doesn't work in Samsung Internet. Open this link in Chrome for voice, or type your answers."
         : "Voice input isn't available in this browser. You can type your answers. On iPhone use Safari; on Android use Chrome."}</p>`}
       <span class="spacer"></span>
-      <div class="row small muted"><span>${esc(user.email)}</span><span class="spacer"></span><button class="quiet small" id="pwchange">Change password</button><button class="quiet small" id="out">Sign out</button></div>`;
+      <div class="row small muted"><span>${esc(user.email)}</span><span class="spacer"></span><button class="quiet small" id="voicebtn">Voice</button><button class="quiet small" id="pwchange">Change password</button><button class="quiet small" id="out">Sign out</button></div>`;
     $app.querySelector('[data-id="somatic_light"]').onclick = () => { unlockSpeech(); runSession(); };
     document.getElementById("hist").onclick = () => ui.history();
     document.getElementById("out").onclick = async () => { await sb.auth.signOut(); ui.signIn(); };
     document.getElementById("pwchange").onclick = () => ui.changePassword();
+    document.getElementById("voicebtn").onclick = () => ui.voices();
+  },
+
+  voices() {
+    pickVoice();
+    const vs = englishVoices().filter(v => !ROBOTIC.test(v.name));
+    $app.innerHTML = `
+      <div class="row"><h1>Voice</h1><span class="spacer"></span><button class="quiet small" id="back">Back</button></div>
+      <p class="muted">Tap a voice to hear it, then tap Use this voice. Voices marked Premium or Enhanced sound the most natural.</p>
+      ${IS_IOS ? '<p class="small muted">Want more choices? On iPhone go to Settings, Accessibility, Spoken Content, Voices, English, and download a Premium voice. Then come back here.</p>' : ""}
+      ${IS_ANDROID ? '<p class="small muted">Want more choices? On Samsung go to Settings, General management, Text-to-speech, choose Google as the engine, and install voice data. Then come back here.</p>' : ""}
+      <div class="stack list" id="vlist">${vs.length ? vs.map((v, i) => `
+        <div class="row panel" style="padding:10px 12px">
+          <div style="flex:1;min-width:0"><b>${esc(v.name)}</b><br><span class="small muted">${esc(v.lang)}${voice && v.name === voice.name ? " · in use" : ""}</span></div>
+          <button class="quiet small" data-play="${i}">Play</button><button class="small" data-use="${i}">Use</button>
+        </div>`).join("") : '<p class="muted">No English voices found on this phone yet. Close and reopen the app, then try again.</p>'}
+      </div>`;
+    document.getElementById("back").onclick = () => ui.menu();
+    $app.querySelectorAll("[data-play]").forEach(b => b.onclick = () => {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance("Where do you feel it in your body? What is the color?");
+      u.voice = vs[+b.dataset.play]; u.lang = u.voice.lang; u.rate = IS_IOS ? 0.9 : 0.95;
+      speechSynthesis.speak(u);
+    });
+    $app.querySelectorAll("[data-use]").forEach(b => b.onclick = () => {
+      try { localStorage.setItem("voiceName", vs[+b.dataset.use].name); } catch {}
+      voice = vs[+b.dataset.use];
+      ui.voices();
+    });
   },
 
   changePassword(msg = "") {
@@ -634,7 +679,10 @@ const ui = {
       <div class="row"><button class="mic" id="mic" aria-label="Tap to talk">${MIC}</button>
         <form id="typed" class="row" style="flex:1;min-width:0;flex-wrap:nowrap"><input id="typedin" placeholder="Or type your answer" autocomplete="off" style="min-width:0"><button type="submit">Send</button></form></div>`;
     document.getElementById("stop").onclick = () => { speechSynthesis.cancel(); session?.pending?.cancel?.(); if (session && !session.pending) session.stopRequested = true; };
-    document.getElementById("mic").onclick = () => session?.pending?.listen?.();
+    document.getElementById("mic").onclick = () => {
+      if (session?.pending?.listen) session.pending.listen();
+      else if (speechSynthesis.speaking) speechSynthesis.cancel(); // skip ahead; listening starts next
+    };
     document.getElementById("plus").onclick = () => session?.pending?.plusOne?.();
     document.getElementById("done").onclick = () => session?.pending?.done?.();
     document.getElementById("typed").onsubmit = e => {
