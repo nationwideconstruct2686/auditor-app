@@ -81,7 +81,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-001717"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-001735"; // stamped by publish-phone-app.sh on every publish
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -733,7 +733,7 @@ async function checkForUpdate() {
   if (APP_VERSION === "dev" || session) return;
   try {
     const res = await fetch(location.pathname + "?check=" + Date.now(), { cache: "no-store" });
-    const live = (await res.text()).match(/const APP_VERSION = "20261101-001717"]+)"/);
+    const live = (await res.text()).match(/APP_VERSION = "([^"]+)"/);
     if (live && live[1] !== APP_VERSION && !session) location.replace(location.pathname + "?v=" + live[1]);
   } catch {}
 }
