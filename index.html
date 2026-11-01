@@ -69,6 +69,7 @@ label { font-weight: 700; font-size: 14px; }
 .report { white-space: pre-wrap; font-size: 15px; word-break: break-word; overflow-wrap: anywhere; }
 .list button { width: 100%; text-align: left; background: var(--surface); color: var(--fg); border: 1px solid var(--line); font-weight: 400; }
 .err { color: var(--warn); }
+.reqs { margin: 0; padding-left: 36px; display: flex; flex-direction: column; gap: 8px; font-size: 16px; }
 </style>
 </head>
 <body>
@@ -83,6 +84,10 @@ const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
 
 // ---------------------------------------------------------------- script lines
 const S = {
+  REVIEW: "Please review the list of initial requirements to start processing. When you're ready, type or say: yes, I'm ready.",
+  REVIEW_WAIT: "Take your time. When you're ready, say: yes, I'm ready.",
+  READY: "Are you ready to begin the session?",
+  NOT_READY: "That's fine. Come back whenever you're ready.",
   START: "Do you have any negative emotion or somatic right now?",
   LOCATE: "Where do you feel it in your body?",
   INTENSITY: "On a scale of 1 to 10, what is the intensity?",
@@ -133,27 +138,17 @@ const EXTRA = {
 };
 const EXTRAS_PER_CYCLE = 3;
 
-// Readiness checklist, asked before every session.
-// bad: the answer that means "not ready". pause: wait for the person to sort it out; block: end kindly.
-const CHECKLIST = [
-  { key: "hungry", q: "Are you hungry enough that it could distract you?", bad: true, act: "block",
-    msg: "Let's have something to eat first. Come back when you're ready." },
-  { key: "energy", q: "Do you feel energized and alert enough to take part?", bad: false, act: "block",
-    msg: "Let's wait until you have more energy. Come back when you feel alert." },
-  { key: "sleep", q: "Are you awake enough to concentrate without struggling to stay awake?", bad: false, act: "block",
-    msg: "Let's do this after some rest. Come back when you're awake." },
-  { key: "comfort", q: "Do you have any significant pain, illness, nausea, or overheating that would make it hard to concentrate?", bad: true, act: "block",
-    msg: "Let's wait until you feel physically better. Take care of yourself first." },
-  { key: "thirst", q: "Are you thirsty enough to be distracted?", bad: true, act: "pause",
-    msg: "Go get some water. Say ready when you're back." },
-  { key: "impaired", q: "Is anything right now causing intoxication, impairment, unusual drowsiness, or confusion, like alcohol, drugs, or medication?", bad: true, act: "block",
-    msg: "We won't start today. Come back when it has fully worn off." },
-  { key: "urgent", q: "Is there anything urgent you need to do first, like the bathroom, food, an important call, or an emergency?", bad: true, act: "pause",
-    msg: "Go take care of it. Say ready when you're back." },
-  { key: "attention", q: "Can you comfortably focus on and talk with me right now?", bad: false, act: "block",
-    msg: "Let's try another time when it's easier to focus." },
-  { key: "willing", q: "Do you want to begin the session right now?", bad: false, act: "block",
-    msg: "That's fine. Come back whenever you want to start." },
+// Requirements shown on screen before every session. The person reads them, then confirms twice.
+const REQUIREMENTS = [
+  "You're not so hungry that it would distract you.",
+  "You feel energized and alert enough to take part.",
+  "You're awake enough to concentrate without struggling to stay awake.",
+  "No significant pain, illness, nausea, or overheating that would make it hard to concentrate.",
+  "You're not thirsty enough to be distracted. Get water first if you need it.",
+  "Nothing is causing intoxication, impairment, unusual drowsiness, or confusion, like alcohol, drugs, or medication. If something is, don't start until it has fully worn off.",
+  "Nothing urgent needs you first, like the bathroom, food, an important call, or an emergency.",
+  "You can comfortably focus on and talk with the auditor.",
+  "You want to begin the session right now.",
 ];
 
 const MODES = [
@@ -176,8 +171,8 @@ function parseNumber(t) {
 }
 function parseYesNo(t) {
   const s = " " + words(t).join(" ") + " ";
-  if (/ (no|nope|nothing|none|not really|i don't) /.test(s)) return false;
-  if (/ (yes|yeah|yep|yup|i do|sure|there is|a little|some) /.test(s)) return true;
+  if (/ (no|nope|nothing|none|not really|not ready|i don't|i'm not) /.test(s)) return false;
+  if (/ (yes|yeah|yep|yup|i do|sure|there is|a little|some|ready|i'm ready|i am ready) /.test(s)) return true;
   return null;
 }
 function countReps(transcript, phrase) {
@@ -464,29 +459,18 @@ async function pickExtras(item, cyc) {
 
 // Returns true when the person is ready to start.
 async function runChecklist() {
-  await say("Before we start, a few quick questions to make sure you're ready.");
-  const start = session.transcript.length;
-  for (const c of CHECKLIST) {
-    const v = await askParsed(c.q, parseYesNo, "yesno");
-    session.checklist.push({ key: c.key, answer: v ? "yes" : "no", ok: v !== c.bad });
-    if (v !== c.bad) continue;
-    await say(c.msg);
-    if (c.act === "block") { session.outcome = `not ready (${c.key})`; return false; }
-    const back = await getAnswer();
-    if (isStop(back)) throw new Stopped();
-    last(session.checklist).resolved = true;
+  ui.requirements(REQUIREMENTS);
+  let reviewed = false;
+  while (!reviewed) {
+    const answer = await ask(S.REVIEW);
+    reviewed = parseYesNo(answer) === true;
+    if (!reviewed) await say(S.REVIEW_WAIT);
   }
-  // The auditor's own observation: do the answers read as awake, coherent and engaged?
-  ui.status("thinking");
-  const r = await ai("observe", { answers: session.transcript.slice(start) }, 5000);
-  if (r && r.ok === false) {
-    session.checklist.push({ key: "observation", answer: "seemed not fully ready", ok: false });
-    if (!(await askParsed("You may not be fully ready right now. Do you still want to go ahead?", parseYesNo, "yesno"))) {
-      await say("Okay. Come back when you're ready.");
-      session.outcome = "not ready (observation)";
-      return false;
-    }
-  }
+  ui.requirements(null);
+  const ready = await askParsed(S.READY, parseYesNo, "yesno");
+  session.checklist.push({ key: "requirements reviewed", answer: "yes", ok: true });
+  session.checklist.push({ key: "ready to begin", answer: ready ? "yes" : "no", ok: ready });
+  if (!ready) { await say(S.NOT_READY); session.outcome = "not ready"; return false; }
   return true;
 }
 
@@ -672,6 +656,7 @@ const ui = {
         <span class="spacer"></span><button class="danger small" id="stop">Stop session</button></div>
       <div class="stage">
         <p class="question" id="q"></p>
+        <ol class="panel reqs" id="reqs" hidden></ol>
         <div class="counter" id="counter" hidden></div>
         <p class="heard" id="heard"></p>
       </div>
@@ -700,6 +685,11 @@ const ui = {
     if (session?.stopRequested && s !== "speaking") { session.stopRequested = false; session.pending?.cancel?.(); }
   },
   question(t) { const el = document.getElementById("q"); if (el) { el.textContent = t; el.style.whiteSpace = "pre-line"; } ui.heard(""); },
+  requirements(list) {
+    const el = document.getElementById("reqs"); if (!el) return;
+    el.hidden = !list;
+    el.innerHTML = list ? list.map(r => `<li>${esc(r)}</li>`).join("") : "";
+  },
   heard(t) { const el = document.getElementById("heard"); if (el) el.textContent = t; },
   listening(on) { const m = document.getElementById("mic"); if (m) m.classList.toggle("quiet", !on); },
   counter(n) {
