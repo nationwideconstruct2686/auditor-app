@@ -83,7 +83,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-154919"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-163122"; // stamped by publish-phone-app.sh on every publish
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -130,6 +130,7 @@ const S = {
   END: "Session complete. Well done.",
   DISTRESS: "Let's pause here. If you are in crisis or thinking about hurting yourself, please reach out for help right now. In the US, call or text 988.",
   REPEAT_Q: "Sorry, I didn't catch that.",
+  CONTINUE: "Let's continue.",
 };
 const S_BASE = { ...S }; // each session starts from these lines, then applies its mode's wording
 // Extra perceptics. Each cycle asks a few of these, picked to fit what the person has described.
@@ -230,6 +231,8 @@ const MODES = [
 ];
 const MAX_DRAWS = 8;
 
+// Sent with questions the person asks mid-session, so the answer uses the owner's own distinctions.
+const DEFINITIONS = "A somatic is a pain, discomfort, or negative body sensation. An emotion is something you're emoting, like anger, worry, fear or boredom. A feeling is something you're getting, like: I have a feeling we aren't attracting the right clients. A counter-intention is what the somatic, emotion or feeling is saying, a word or a phrase.";
 const TRUTH = [
   "In these processes, we're locating counter-intentions, neutralizing them when you say \"cancel, cancel,\" and replacing them with an absolute truth.",
   "What is an absolute truth? Absolute truth is something that is always true, 100% true, and is the highest truth. Absolute truth is that God is within us, that we have infinite supply, and that the kingdom of heaven is within us.",
@@ -244,6 +247,9 @@ const MAX_CYCLES = 15;
 
 // ---------------------------------------------------------------- parsing (no AI)
 const NUM = { zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10 };
+// Cheap check before asking the AI whether the person asked the app something.
+const QUESTION_START = /^(what|why|how|who|where|when|which|can|could|would|should|will|is|are|am|do|does|did|was|were|tell me|explain|i have a question|question)/;
+const looksLikeQuestion = t => !!t && (t.trim().endsWith("?") || QUESTION_START.test(t.trim().toLowerCase()));
 const words = t => t.toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
 function parseNumber(t) {
   const low = t.toLowerCase();
@@ -458,22 +464,36 @@ async function ai(task, payload, timeoutMs) {
 }
 
 // ---------------------------------------------------------------- the procedure
-async function ask(line, { reflect = false } = {}) {
-  const spoken = session.ack ? `${session.ack} ${line}` : line;
+// questions: false where the answer itself may sound like a question (a counter-intention like "why me?").
+async function ask(line, { reflect = false, questions = true } = {}) {
+  let spoken = session.ack ? `${session.ack} ${line}` : line;
   session.ack = "";
-  await say(spoken);
-  ui.question(line);
-  const answer = await getAnswer();
-  session.transcript.push({ q: line, a: answer });
-  if (isStop(answer)) throw new Stopped();
-  if (isDistress(answer)) throw new Distress();
-  if (reflect && answer) {
-    ui.status("thinking");
-    const r = await ai("reflect", { question: line, answer }, 4000);
-    if (r && r.distress) throw new Distress();
-    if (r && typeof r.ack === "string") session.ack = r.ack.slice(0, 120);
+  for (let asked = 0; ; asked++) {
+    await say(spoken);
+    ui.question(line);
+    const answer = await getAnswer();
+    session.transcript.push({ q: line, a: answer });
+    if (isStop(answer)) throw new Stopped();
+    if (isDistress(answer)) throw new Distress();
+    // The person asked the app something: answer it briefly, then ask the same question again.
+    if (questions && asked < 3 && session.aiOn && looksLikeQuestion(answer)) {
+      ui.status("thinking");
+      const r = await ai("answer", { question: line, asked: answer, mode: modeTitle(session.mode), concepts: [DEFINITIONS, ...TRUTH] }, 12000);
+      if (r && r.distress) throw new Distress();
+      if (r && r.is_question && typeof r.reply === "string" && r.reply) {
+        session.transcript.push({ q: "(answer to their question)", a: r.reply });
+        spoken = `${r.reply.slice(0, 400)} ${S.CONTINUE} ${line}`;
+        continue;
+      }
+    }
+    if (reflect && answer) {
+      ui.status("thinking");
+      const r = await ai("reflect", { question: line, answer }, 6000);
+      if (r && r.distress) throw new Distress();
+      if (r && typeof r.ack === "string") session.ack = r.ack.slice(0, 120);
+    }
+    return answer;
   }
-  return answer;
 }
 
 async function askParsed(line, parse, kind) {
@@ -566,11 +586,11 @@ async function runMemoryItem() {
 
 // Counter-intention 10x, cancel cancel, then the replacement 10x. Fills in counter/negCount/seed/posCount.
 async function neutralize(rec) {
-  rec.counter = cleanPhrase(await ask(S.VOICE));
+  rec.counter = cleanPhrase(await ask(S.VOICE, { questions: false }));
   rec.negCount = await repeatTen(S.REPEAT_NEG, rec.counter);
   await say(S.CANCEL);
   await getAnswer({ autoContinueMs: 7000 });
-  rec.seed = cleanPhrase(await ask(S.REPLACE));
+  rec.seed = cleanPhrase(await ask(S.REPLACE, { questions: false }));
   rec.posCount = await repeatTen(S.REPEAT_POS, rec.seed);
 }
 

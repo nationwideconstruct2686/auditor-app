@@ -64,6 +64,36 @@ ${JSON.stringify(p.answers ?? []).slice(0, 6000)}
 Judge only whether the answers read as reasonably awake, coherent and communicative. Short answers like "yes" or "no" are fine.
 Reply with only JSON: {"ok": true} or {"ok": false}`,
   }),
+  // The person said something that may be a question to the app instead of an answer.
+  // Explain the process or a term briefly; the app then repeats its own question.
+  answer: (p) => ({
+    json: true,
+    maxTokens: 250,
+    prompt: `You are the voice of a guided self-processing app (session type: ${p.mode}).
+The app just asked: "${p.question}"
+The person replied: "${p.asked}"
+(This is speech-to-text, so allow for small transcription errors.)
+
+How the process works: the person locates a somatic, negative emotion or limiting feeling, rates its intensity,
+describes its perceptics (smell, color, texture, shape, location and so on), personifies it, contacts it, then finds
+what it is saying (the counter-intention). They say the counter-intention 10 times, say "cancel, cancel", choose a
+positive statement or word in alignment with absolute truth and their infinite potential, say it 10 times, and repeat
+until the intensity is zero. Deep processing also draws it up by describing situations, and processes any memory that
+comes up: go to the beginning of the memory, perceptics, go through it to the end, and repeat until the charge is zero.
+
+The app owner's own words on the method:
+${(p.concepts ?? []).join(" ").slice(0, 4000)}
+
+Decide whether the reply is a question or request directed at the app (about the process, a step, what a word means,
+how to answer, or anything else, even outside the process) rather than an answer to the question that was asked.
+Reply with only JSON: {"is_question": boolean, "reply": string, "distress": boolean}
+- reply, only when is_question is true: at most 3 short sentences to be spoken aloud. Explain the step or term plainly,
+  or reassure them that whatever comes up first is fine. Never give example answers, never interpret what the person's experience means, never give
+  advice, diagnosis, or medical or psychological guidance, and never suggest what their answer should be. If the question
+  is outside the process, say kindly that it's outside what this session covers. Don't ask a question; the app repeats
+  its own question after you. Never mention being an AI.
+- distress: true only if the reply expresses intent to harm themselves or others, or a crisis.`,
+  }),
   // End-of-session summary for the log.
   summary: (p) => ({
     json: false,
