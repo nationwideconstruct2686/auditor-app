@@ -84,7 +84,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261102-100243"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261102-100818"; // stamped by publish-phone-app.sh on every publish
 
 // English or Spanish, chosen per phone. Changing it reloads the app.
 const LANG = (() => { try { return localStorage.getItem("lang") === "es" ? "es" : "en"; } catch { return "en"; } })();
@@ -218,7 +218,7 @@ const DRAW_MORE = "Tell me more about it. What was happening?";
 // Negative thought processing: voice the thought, say it 10 times, cancel, replace, say that 10 times,
 // and go again until there are no more. Kept very light: a short opening and no perceptics.
 const THOUGHT = {
-  THINK: "Think of a negative thought that you thought of today or in the recent past.",
+  THINK: "Think of a negative thought you thought or said today. It could be a negative word, a negative statement, a negative thought, or something you said.",
   WHAT: "What is the negative thought?",
   VOICE: "Voice the negative thought.",
   THANKS: "Thank you.",
@@ -257,7 +257,7 @@ const MODES = [
              VOICE: "What is the limiting thought which is acting as a counter-intention to a more optimal experience?",
              ITEM_DONE: "That experience is optimized. Is there any other experience you want to optimize?" } },
   { id: "negative_thought", group: "light", name: "Negative Thought Processing", ready: true, item: "thought", noun: "Negative thoughts",
-    desc: "Voice a negative thought from today or the recent past, say it 10 times, cancel it, and replace it with a statement you say 10 times.",
+    desc: "Voice a negative thought you thought or said today, say it 10 times, cancel it, and replace it with a statement you say 10 times.",
     lines: { OPENING: ["We're going to start the session now.", "Close your eyes."] } },
   { id: "somatic_memory", group: "memory", name: "Somatic Processing with Memory Retrieval", desc: "Draws up a somatic, reduces it, processes any memory that comes up, neutralizes the counter-intentions and replaces them with absolute truths.", ready: true,
     memory: true, noun: "Somatics",
@@ -289,6 +289,11 @@ const TRUTH = [
   "Of course, any identity that we choose has limits, but here we're growing and expanding our identity by de-weeding negative statements and replacing them with higher statements and postulates with fewer limits.",
   "All limitation and suffering is based upon us believing in something that is not the absolute truth. The more that we align our mind with the absolute truths, with our true identity, the less suffering we'll experience.",
   "These processes are designed to neutralize counter-intentions and to put new positive seeds, which are in alignment with the highest truth: that the kingdom of heaven is within you, that you are a child of God, and that you have infinite supply.",
+  "Some more understanding of what negative thoughts, feelings, and emotions can be:",
+  "A need is a feeling of separation: you need something outside of yourself. We are whole, complete, and perfect the way we are. We have infinite power within us. We need nothing outside of ourselves.",
+  "Want is a feeling of separation as well. It's a feeling of lack. Any feeling of lack is, of course, also a manifestation of duality, as the kingdom of heaven is within us.",
+  "Doubt can show up as \"I don't know.\" If \"I don't know\" or \"I'm unsure\" comes up, process that, as it's blocking our infinite intelligence from coming out through us. It's another identity block, which is blocking the light from shining through.",
+  "Negative emotions include boredom, antagonism, anger, depression, sadness, grief, apathy, envying, strife, and contention. All negative emotion is separation from source, but it's really just a block of source energy caused by negative thinking, which reinforces an identity that blocks the light from shining through.",
 ];
 const modeTitle = m => m.title || m.name;
 const MAX_CYCLES = 15;
@@ -377,7 +382,7 @@ const ES = {
     BACK: "Bien. Vuelve a la sensación.",
   },
   THOUGHT: {
-    THINK: "Piensa en un pensamiento negativo que hayas tenido hoy o en los últimos días.",
+    THINK: "Piensa en un pensamiento negativo que pensaste o dijiste hoy. Puede ser una palabra negativa, una afirmación negativa, un pensamiento negativo o algo que dijiste.",
     WHAT: "¿Cuál es el pensamiento negativo?",
     VOICE: "Expresa el pensamiento negativo.",
     THANKS: "Gracias.",
@@ -441,7 +446,7 @@ const ES = {
         draw: { DESCRIBE: "Describe una situación de tu pasado que todavía te moleste.", MORE: more,
                 HAVE: "¿Hay ahí un recuerdo que quieras procesar ahora?" } },
       negative_thought: { name: "Procesamiento de Pensamientos Negativos", noun: "Pensamientos negativos",
-        desc: "Expresa un pensamiento negativo de hoy o de los últimos días, dilo 10 veces, cancélalo y reemplázalo con una afirmación que dices 10 veces.",
+        desc: "Expresa un pensamiento negativo que pensaste o dijiste hoy, dilo 10 veces, cancélalo y reemplázalo con una afirmación que dices 10 veces.",
         lines: { OPENING: ["Vamos a comenzar la sesión ahora.", "Cierra los ojos."] } },
       experience: { name: "Procesamiento de Experiencias", noun: "Experiencias",
         desc: "Procesa una experiencia reciente que quieras optimizar y que no tenga somáticos, emociones negativas ni sentimientos limitantes distinguibles.",
@@ -468,6 +473,11 @@ const ES = {
     "Por supuesto, cualquier identidad que elijamos tiene límites, pero aquí estamos haciendo crecer y expandiendo nuestra identidad al arrancar las afirmaciones negativas como si fueran maleza, y reemplazarlas con afirmaciones y postulados más elevados, con menos límites.",
     "Toda limitación y todo sufrimiento se basan en creer en algo que no es la verdad absoluta. Cuanto más alineamos nuestra mente con las verdades absolutas, con nuestra verdadera identidad, menos sufrimiento experimentamos.",
     "Estos procesos están diseñados para neutralizar contraintenciones y sembrar nuevas semillas positivas, en armonía con la verdad más alta: que el reino de los cielos está dentro de ti, que eres hijo o hija de Dios y que tienes provisión infinita.",
+    "Un poco más de comprensión sobre lo que pueden ser los pensamientos, sentimientos y emociones negativos:",
+    "Una necesidad es un sentimiento de separación: necesitas algo fuera de ti. Somos completos, enteros y perfectos tal como somos. Tenemos un poder infinito dentro de nosotros. No necesitamos nada fuera de nosotros.",
+    "El deseo también es un sentimiento de separación. Es un sentimiento de carencia. Cualquier sentimiento de carencia es, por supuesto, también una manifestación de la dualidad, ya que el reino de los cielos está dentro de nosotros.",
+    "La duda puede aparecer como \"no sé\". Si aparece \"no sé\" o \"no estoy seguro\", procésalo, porque está bloqueando que nuestra inteligencia infinita se exprese a través de nosotros. Es otro bloqueo de identidad que impide que la luz brille a través de nosotros.",
+    "Las emociones negativas incluyen el aburrimiento, el antagonismo, el enojo, la depresión, la tristeza, el duelo, la apatía, la envidia, la discordia y la contienda. Toda emoción negativa es separación de la fuente, pero en realidad es solo un bloqueo de la energía de la fuente causado por el pensamiento negativo, que refuerza una identidad que impide que la luz brille a través de nosotros.",
   ],
   // Report labels for the perceptic keys.
   KEYS: { smell: "olor", color: "color", texture: "textura", feel: "cómo se siente", shape: "forma", location: "ubicación", moved: "se movió",
