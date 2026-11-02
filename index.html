@@ -84,7 +84,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261102-100818"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261102-101917"; // stamped by publish-phone-app.sh on every publish
 
 // English or Spanish, chosen per phone. Changing it reloads the app.
 const LANG = (() => { try { return localStorage.getItem("lang") === "es" ? "es" : "en"; } catch { return "en"; } })();
@@ -128,7 +128,11 @@ const S = {
     ["body_position", "What is its body position?"],
   ],
   CONTACT: "Contact it.",
-  VOICE: "What is it saying? What is the counter-intention?", // always the last question of a cycle
+  // After the questions: ask for counter-intentions one at a time until there are no more.
+  ANY_CI: "Is there a counter-intention?",
+  VOICE_CI: "Voice the counter-intention.",
+  ANOTHER_CI: "Is there another counter-intention?",
+  DONT_KNOW: "Okay. Then that's the counter-intention.", // "I don't know" is processed as the counter-intention
   REPEAT_NEG: "Say it ten times: ",
   CANCEL: "Now say: cancel, cancel.",
   REPLACE: "What do you want to replace this with? What do you want your self-image to be? Choose a positive statement or word that is in alignment with absolute truth and your infinite potential.",
@@ -254,7 +258,9 @@ const MODES = [
   { id: "experience", group: "light", name: "Experience Processing", ready: true, item: "experience", noun: "Experiences",
     desc: "Process a recent experience that you want to optimize that doesn't have any somatics, negative emotions, or distinguishing limiting feelings.",
     lines: { START: "Do you have a recent experience you want to optimize?",
-             VOICE: "What is the limiting thought which is acting as a counter-intention to a more optimal experience?",
+             ANY_CI: "Is there a limiting thought which is acting as a counter-intention to a more optimal experience?",
+             VOICE_CI: "Voice the limiting thought.",
+             ANOTHER_CI: "Is there another limiting thought acting as a counter-intention to a more optimal experience?",
              ITEM_DONE: "That experience is optimized. Is there any other experience you want to optimize?" } },
   { id: "negative_thought", group: "light", name: "Negative Thought Processing", ready: true, item: "thought", noun: "Negative thoughts",
     desc: "Voice a negative thought you thought or said today, say it 10 times, cancel it, and replace it with a statement you say 10 times.",
@@ -331,7 +337,10 @@ const ES = {
       ["body_position", "¿Cuál es la posición de su cuerpo?"],
     ],
     CONTACT: "Haz contacto con eso.",
-    VOICE: "¿Qué está diciendo? ¿Cuál es la contraintención?",
+    ANY_CI: "¿Hay una contraintención?",
+    VOICE_CI: "Expresa la contraintención.",
+    ANOTHER_CI: "¿Hay otra contraintención?",
+    DONT_KNOW: "Bien. Entonces esa es la contraintención.",
     REPEAT_NEG: "Dilo diez veces: ",
     CANCEL: "Ahora di: cancelar, cancelar.",
     REPLACE: "¿Con qué quieres reemplazarlo? ¿Cómo quieres que sea tu autoimagen? Elige una afirmación o palabra positiva que esté en armonía con la verdad absoluta y tu potencial infinito.",
@@ -451,7 +460,9 @@ const ES = {
       experience: { name: "Procesamiento de Experiencias", noun: "Experiencias",
         desc: "Procesa una experiencia reciente que quieras optimizar y que no tenga somáticos, emociones negativas ni sentimientos limitantes distinguibles.",
         lines: { START: "¿Tienes alguna experiencia reciente que quieras optimizar?",
-                 VOICE: "¿Cuál es el pensamiento limitante que está actuando como contraintención a una experiencia más óptima?",
+                 ANY_CI: "¿Hay un pensamiento limitante que esté actuando como contraintención a una experiencia más óptima?",
+                 VOICE_CI: "Expresa el pensamiento limitante.",
+                 ANOTHER_CI: "¿Hay otro pensamiento limitante que esté actuando como contraintención a una experiencia más óptima?",
                  ITEM_DONE: "Esa experiencia está optimizada. ¿Hay alguna otra experiencia que quieras optimizar?" } },
       chains: { name: "Método de Procesamiento en Cadena", desc: "Procesa cada recuerdo y llega al más antiguo de la cadena." },
       negative_emotion_memory: { name: "Procesamiento de Emociones Negativas", title: "Procesamiento Profundo de Emociones Negativas", ...emotion,
@@ -619,6 +630,21 @@ function cleanPhrase(t) {
     .replace(/^(it'?s saying|it is saying|it says|it's telling me|it tells me|saying|i want to replace it with|replace it with|i want it to be|i want|me est[aá] diciendo|est[aá] diciendo|me dice|dice|diciendo|quiero reemplazarlo con|reemplazarlo con|reempl[aá]zalo con|quiero que sea|quiero)\s*[:,]?\s*/i, "")
     .replace(/^["'“”«]+|["'“”».]+$/g, "")
     .trim() || t.trim();
+}
+// "I don't know" (doubt) is itself processed as a counter-intention.
+const isDontKnow = t => /^(i don'?t know|i do not know|i'?m not sure|i am not sure|not sure|i'?m unsure|unsure|no se|no lo se|no estoy segur[oa])\b/.test(words(t).join(" "));
+// The answer to "Is there a counter-intention?": a plain yes, a plain no ("nothing surfaces right now" is a no),
+// or the counter-intention itself ("no one listens to me" is a counter-intention, not a no).
+function ciAnswer(t) {
+  const w = words(t).join(" ");
+  if (isDontKnow(t)) return { phrase: cleanPhrase(t) };
+  if (!w || /^(yes|yeah|yep|yup|sure|there is|yes there is|si|si hay|claro|hay una)$/.test(w)) return { yes: true };
+  const rest = w.replace(/^(no|nope|nah|nada|ninguna|ninguno)\b\s*/, "");
+  const filler = /^((there is|there's) (nothing|none|not|no)|there isn't|nothing|none|not really|not right now|not now|right now|at the moment|nothing (surfaces|surfaced|comes up|came up)( right now)?|(it|nothing) surface[sd]?( right now)?|surface right now|i don't think so|no hay|hay|nada|ahora no|por ahora no|no por ahora|ya no)?( right now| at the moment| now)?$/;
+  if ((rest !== w || /^(nothing|none|not|there is nothing|there's nothing|there isn't|surface|i don't think so|nada|no hay|ahora no|por ahora|ya no)/.test(w)) && filler.test(rest)) return { no: true };
+  const m = t.match(/^\s*(yes|yeah|yep|s[ií])\b[\s,.:!-]*(it'?s saying\s*)?(.+)$/i);
+  if (m) return { phrase: cleanPhrase(m[3]) };
+  return { phrase: cleanPhrase(t) };
 }
 const isStop = t => /\b(stop session|end session|stop the session|deten(er)? (la )?sesion|termina(r)? (la )?sesion|para(r)? (la )?sesion)\b/.test(fold(t)) || /^(stop|pause|alto|detente|pausa)$/.test(words(t).join(" "));
 const isDistress = t => /(kill myself|suicide|hurt myself|end my life|want to die|self harm|matarme|suicid|hacerme dano|quitarme la vida|quiero morir|me quiero morir|lastimarme|autolesion|no quiero vivir)/.test(fold(t));
@@ -1042,14 +1068,27 @@ async function runMemoryItem() {
   await processMemory(mem);
 }
 
-// Counter-intention 10x, cancel cancel, then the replacement 10x. Fills in counter/negCount/seed/posCount.
+// "Is there a counter-intention?" For each one: 10x, cancel cancel, the replacement 10x, then
+// "Is there another counter-intention?" until there are no more. Each one goes in rec.cis.
+const MAX_CIS = 10;
 async function neutralize(rec) {
-  rec.counter = cleanPhrase(await ask(S.VOICE, { questions: false, skip: false }));
-  rec.negCount = await repeatTen(S.REPEAT_NEG, rec.counter);
-  await say(S.CANCEL);
-  await getAnswer({ autoContinueMs: 7000 });
-  rec.seed = cleanPhrase(await ask(S.REPLACE, { questions: false, skip: false }));
-  rec.posCount = await repeatTen(S.REPEAT_POS, rec.seed);
+  rec.cis = [];
+  let line = S.ANY_CI;
+  for (let n = 0; n < MAX_CIS; n++) {
+    const r = ciAnswer(await ask(line, { questions: false, skip: false }));
+    if (r.no) return;
+    const counter = r.phrase || cleanPhrase(await ask(S.VOICE_CI, { questions: false, skip: false }));
+    if (isDontKnow(counter)) await say(S.DONT_KNOW);
+    const ci = { counter, negCount: 0, seed: null, posCount: 0 };
+    rec.cis.push(ci);
+    ci.negCount = await repeatTen(S.REPEAT_NEG, ci.counter);
+    await say(S.CANCEL);
+    await getAnswer({ autoContinueMs: 7000 });
+    ci.seed = cleanPhrase(await ask(S.REPLACE, { questions: false, skip: false }));
+    ci.posCount = await repeatTen(S.REPEAT_POS, ci.seed);
+    saveProgress();
+    line = S.ANOTHER_CI;
+  }
 }
 
 // Haiku picks which extra perceptics fit; if it can't answer, rotate through the ones not asked yet.
@@ -1114,9 +1153,10 @@ async function runSession(mode) {
         if (mode.item === "thought") await runThoughts();
         else if (!(await askParsed(S.START, parseYesNo, "yesno")) && !(await drawUp(mode.draw))) { session.outcome = "no charge present"; await say(S.NONE_START); }
         else {
+          // Once it's at zero the session ends. Full Memory still offers another memory.
           while (true) {
             await (mode.item === "memory" ? runMemoryItem() : mode.item === "experience" ? runExperienceItem() : runItem());
-            if (!(await askParsed(S.ITEM_DONE, parseYesNo, "yesno"))) break;
+            if (mode.item !== "memory" || !(await askParsed(S.ITEM_DONE, parseYesNo, "yesno"))) break;
           }
           await say(S.END);
         }
@@ -1168,8 +1208,10 @@ function buildReport(summary) {
       if (!thought) L.push(`  ${T("Cycle {0}", j + 1)}`);
       for (const [k, v] of Object.entries(c.perceptics)) L.push(`    ${keyLabel(k)}: ${v}`);
       if (c.memory) L.push(...memoryLines(c.memory, "    "));
-      if (c.counter) L.push(`    ${T("Counter-intention: \"{0}\" (said {1}x, canceled)", c.counter, c.negCount)}`);
-      if (c.seed) L.push(`    ${T("Seed: \"{0}\" (said {1}x)", c.seed, c.posCount)}`);
+      for (const ci of cisOf(c)) {
+        L.push(`    ${T("Counter-intention: \"{0}\" (said {1}x, canceled)", ci.counter, ci.negCount)}`);
+        if (ci.seed) L.push(`    ${T("Seed: \"{0}\" (said {1}x)", ci.seed, ci.posCount)}`);
+      }
       if (c.after !== null && !thought) L.push(`    ${it.ideal != null ? T("Optimal now: {0}", T(c.after === 0 ? "yes" : "no")) : T("Intensity after: {0}", c.after)}`);
     });
     L.push("");
@@ -1178,9 +1220,9 @@ function buildReport(summary) {
   const memories = [...session.memories, ...session.items.flatMap(it => it.cycles.filter(c => c.memory).map(c => c.memory))];
   const memDone = memories.filter(m => m.start === 0 || (m.passes.length && last(m.passes).after === 0));
   const discharged = session.items.filter(it => it.cycles.length && last(it.cycles).after === 0);
-  const recs = [...session.items.flatMap(it => it.cycles), ...memories.flatMap(m => m.passes)];
-  const counters = recs.filter(c => c.counter && c.negCount).map(c => c.counter);
-  const seeds = recs.filter(c => c.seed && c.posCount).map(c => c.seed);
+  const cis = [...session.items.flatMap(it => it.cycles), ...memories.flatMap(m => m.passes)].flatMap(cisOf);
+  const counters = cis.filter(c => c.counter && c.negCount).map(c => c.counter);
+  const seeds = cis.filter(c => c.seed && c.posCount).map(c => c.seed);
   L.push(T("RESULT"));
   if (memories.length) L.push(T("Memories discharged: {0} of {1}.", memDone.length, memories.length));
   if (session.mode.item === "thought") L.push(T("{0} canceled: {1}.", session.mode.noun, session.items.filter(it => it.cycles[0].negCount).length));
@@ -1198,6 +1240,9 @@ function buildReport(summary) {
   return L.join("\n");
 }
 
+// Counter-intentions of a cycle or pass (negative thoughts keep theirs on the cycle itself).
+const cisOf = c => c.cis || (c.counter ? [c] : []);
+
 function memoryLines(m, pad, n) {
   const L = [`${pad}${n ? T("MEMORY {0}", n) : T("Memory")}: ${m.name || T("(not named)")}`];
   if (m.situation) L.push(`${pad}  ${T("Situation: {0}", m.situation)}`);
@@ -1206,8 +1251,10 @@ function memoryLines(m, pad, n) {
     L.push(`${pad}  ${T("Pass {0}", j + 1)}`);
     for (const [k, v] of Object.entries(p.perceptics)) L.push(`${pad}    ${keyLabel(k)}: ${v}`);
     if (p.story) L.push(`${pad}    ${T("What happens: {0}", p.story)}`);
-    if (p.counter) L.push(`${pad}    ${T("Counter-intention: \"{0}\" (said {1}x, canceled)", p.counter, p.negCount)}`);
-    if (p.seed) L.push(`${pad}    ${T("Seed: \"{0}\" (said {1}x)", p.seed, p.posCount)}`);
+    for (const ci of cisOf(p)) {
+      L.push(`${pad}    ${T("Counter-intention: \"{0}\" (said {1}x, canceled)", ci.counter, ci.negCount)}`);
+      if (ci.seed) L.push(`${pad}    ${T("Seed: \"{0}\" (said {1}x)", ci.seed, ci.posCount)}`);
+    }
     if (p.after !== null) L.push(`${pad}    ${T("Charge after: {0}", p.after)}`);
   });
   return L;
