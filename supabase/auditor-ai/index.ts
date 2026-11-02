@@ -13,7 +13,7 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const RULES = `You assist a scripted somatic-processing session. The script asks every question;
+const RULES = `You assist a scripted self-processing session. The script asks every question;
 you never ask questions, give advice, interpret, diagnose, or add your own ideas.
 Use plain, calm, warm language. Never mention being an AI.`;
 
@@ -22,7 +22,10 @@ describes its perceptics (smell, color, texture, shape, location and so on), per
 what it is saying (the counter-intention). They say the counter-intention 10 times, say "cancel, cancel", choose a
 positive statement or word in alignment with absolute truth and their infinite potential, say it 10 times, and repeat
 until the intensity is zero. Deep processing also draws it up by describing situations, and processes any memory that
-comes up: go to the beginning of the memory, perceptics, go through it to the end, and repeat until the charge is zero.`;
+comes up: go to the beginning of the memory, perceptics, go through it to the end, and repeat until the charge is zero.
+Experience processing works on a recent suboptimal experience with no somatic, emotion or feeling attached: the person
+names it and the ideal outcome, recalls its percepts (where, what they saw, smelled, heard, felt), then finds the
+limiting thought acting as a counter-intention to a more optimal experience, and repeats until nothing about it is suboptimal.`;
 
 // Shared by every task that hears the person's reply: spot a question to the app and answer it fully.
 const questionCheck = (p: any) => `You are the voice of a guided self-processing app (session type: ${p.mode ?? "processing"}).
@@ -42,7 +45,14 @@ If it is, set is_question true and write reply: a complete answer to what they a
 spoken aloud. Answer it fully and directly; never just thank them. Never give example answers, never interpret what the
 person's experience means, never give advice, diagnosis, or medical or psychological guidance, and never suggest what their
 answer should be. If the question is outside the process, say kindly that it's outside what this session covers. If they
-asked to repeat, reply "Of course." Don't ask a question; the app repeats its own question after you. Never mention being an AI.`;
+asked to repeat, reply "Of course." Don't ask a question; the app repeats its own question after you. Never mention being an AI.${inSpanish(p)}`;
+
+// The app can run in Spanish; then everything the person hears or reads comes back in Spanish.
+function inSpanish(p: any) {
+  return p.lang === "es"
+    ? `\nThe person is using the app in Spanish. Write reply, ack and any other text in natural Latin American Spanish, using tú. JSON keys stay in English.`
+    : "";
+}
 
 const TASKS: Record<string, (p: any) => { prompt: string; maxTokens: number; json: boolean }> = {
   // Either answers a question the person asked, or gives a short acknowledgment that echoes their words.
@@ -100,7 +110,7 @@ Reply with only JSON: {"keys": ["key1", "key2", "key3"]}`,
 
 Write a 3-4 sentence plain summary of this session for the person's own log: what was addressed,
 how the intensity changed, the counter-intentions canceled, and the positive statements planted.
-Use the person's own words. No advice. Session data:
+Use the person's own words. No advice.${inSpanish(p)} Session data:
 ${JSON.stringify(p.log).slice(0, 20000)}`,
   }),
 };

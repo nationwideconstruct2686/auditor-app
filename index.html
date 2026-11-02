@@ -83,7 +83,16 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-210210"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-211802"; // stamped by publish-phone-app.sh on every publish
+
+// English or Spanish, chosen per phone. Changing it reloads the app.
+const LANG = (() => { try { return localStorage.getItem("lang") === "es" ? "es" : "en"; } catch { return "en"; } })();
+document.documentElement.lang = LANG;
+const SR_LANG = LANG === "es" ? "es-US" : "en-US";
+const LOCALE = LANG === "es" ? "es" : [];
+// UI text: English is the key; UI_ES holds the Spanish. {0}, {1} are filled from the arguments.
+const T = (str, ...a) => (LANG === "es" && UI_ES[str] !== undefined ? UI_ES[str] : str).replace(/\{(\d)\}/g, (_, i) => a[i]);
+function setLang(l) { try { localStorage.setItem("lang", l); } catch {} location.reload(); }
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -202,6 +211,21 @@ const FEELING = { noun: "Limiting feelings", name_q: "Describe the feeling you'r
   lines: { START: "Do you have a limiting feeling you want to process now? Something like: I have a feeling we aren't attracting the right clients.",
            ITEM_DONE: "That one is discharged. Is there any other limiting feeling?" } };
 const DRAW_MORE = "Tell me more about it. What was happening?";
+// Experience processing: a recent suboptimal experience with no somatic, emotion or feeling attached.
+// Every question is about the percepts of that experience; the counter-intention is the limiting thought.
+const EXP = {
+  WHAT: "What was the experience? Describe it briefly.",
+  IDEAL: "What would the ideal outcome be?",
+  BEGIN: "Go back to the experience.",
+  AGAIN: "Okay. Go back to the experience again.",
+  PERCEPTICS: [
+    ["where", "Where were you?"], ["time_of_day", "What time of day was it?"], ["see", "What did you see?"],
+    ["walls", "What color were the walls or the things around you?"], ["smell", "What were the smells?"],
+    ["hear", "What did you hear?"], ["feel", "What were the feelings in your body?"], ["temperature", "What was the temperature?"],
+    ["touch", "What were you touching, or what was touching you?"], ["notice", "What did you notice that wasn't optimal?"],
+  ],
+  CHECK: "Look at the experience again. Is there anything about it that still isn't optimal?",
+};
 const GROUPS = [
   { id: "light", name: "Light Processing", desc: "Clears what's on the surface. Nothing is drawn up and no memories." },
   { id: "memory", name: "Deep Processing", desc: "Draws it up by describing the situation, and processes past memories." },
@@ -211,6 +235,11 @@ const MODES = [
     noun: "Somatics" },
   { id: "negative_emotion", group: "light", name: "Negative Emotion Processing Light", desc: "Find the counter-intention, neutralize it, replace it with an absolute truth, and reduce the negative emotion to zero.", ready: true, ...EMOTION },
   { id: "feelings", group: "light", name: "Limiting Feelings Processing Light", desc: "Find the counter-intention, neutralize it, replace it with an absolute truth, and reduce the limiting feeling to zero.", ready: true, ...FEELING },
+  { id: "experience", group: "light", name: "Experience Processing", ready: true, item: "experience", noun: "Experiences",
+    desc: "Process a recent experience that you want to optimize that doesn't have any somatics, negative emotions, limiting feelings, or distinguishing limiting feelings.",
+    lines: { START: "Do you have a recent experience you want to optimize?",
+             VOICE: "What is the limiting thought which is acting as a counter-intention to a more optimal experience?",
+             ITEM_DONE: "That experience is optimized. Is there any other experience you want to optimize?" } },
   { id: "somatic_memory", group: "memory", name: "Somatic Processing with Memory Retrieval", desc: "Draws up a somatic, reduces it, processes any memory that comes up, neutralizes the counter-intentions and replaces them with absolute truths.", ready: true,
     memory: true, noun: "Somatics",
     draw: { DESCRIBE: "Describe a time you had a pain or discomfort in your body. What was the situation?", MORE: DRAW_MORE,
@@ -232,7 +261,7 @@ const MODES = [
 const MAX_DRAWS = 8;
 
 // Sent with questions the person asks mid-session, so the answer uses the owner's own distinctions.
-const DEFINITIONS = "A somatic is a pain, discomfort, or negative body sensation. An emotion is something you're emoting, like anger, worry, fear or boredom. A feeling is something you're getting, like: I have a feeling we aren't attracting the right clients. A counter-intention is what the somatic, emotion or feeling is saying, a word or a phrase.";
+let DEFINITIONS = "A somatic is a pain, discomfort, or negative body sensation. An emotion is something you're emoting, like anger, worry, fear or boredom. A feeling is something you're getting, like: I have a feeling we aren't attracting the right clients. A counter-intention is what the somatic, emotion or feeling is saying, a word or a phrase.";
 const TRUTH = [
   "In these processes, we're locating counter-intentions, neutralizing them when you say \"cancel, cancel,\" and replacing them with an absolute truth.",
   "What is an absolute truth? Absolute truth is something that is always true, 100% true, and is the highest truth. Absolute truth is that God is within us, that we have infinite supply, and that the kingdom of heaven is within us.",
@@ -245,23 +274,285 @@ const TRUTH = [
 const modeTitle = m => m.title || m.name;
 const MAX_CYCLES = 15;
 
+// ---------------------------------------------------------------- Spanish
+const ES = {
+  S: {
+    REVIEW: "Por favor, revisa la lista de requisitos iniciales para comenzar el procesamiento. Cuando quieras empezar, escribe o di: sí, empecemos.",
+    REVIEW_WAIT: "Tómate tu tiempo. Cuando quieras empezar, di: sí, empecemos.",
+    READY: "¿Quieres comenzar la sesión?",
+    NOT_READY: "Está bien. Vuelve cuando quieras.",
+    OPENING: [
+      "Vamos a comenzar la sesión ahora.",
+      "Permanecerás consciente de todo lo que suceda.",
+      "Podrás recordar todo lo que pase aquí.",
+      "Puedes salir de cualquier cosa en la que entres si no te gusta.",
+      "Cierra los ojos.",
+      "En el futuro, cuando pronuncie la palabra cancelar, todo lo que te haya dicho durante tu sesión de terapia quedará cancelado y no tendrá ninguna fuerza sobre ti.",
+      "Cualquier sugerencia que te haga quedará sin fuerza cuando diga la palabra cancelar.",
+      "Cualquier afirmación positiva que estés sembrando deliberadamente para transformar este tema estará en vigor según tu intención y según tu mayor bien.",
+    ],
+    CLOSING: ["5.", "4.", "3.", "2.", "1.", "Despierta."],
+    START: "¿Tienes algún somático que quieras procesar ahora mismo? Dolor, molestia o sensaciones negativas en el cuerpo.",
+    LOCATE: "¿Dónde lo sientes en tu cuerpo?",
+    INTENSITY: "En una escala del 1 al 10, ¿cuál es la intensidad?",
+    PERCEPTICS: [
+      ["smell", "¿A qué huele?"], ["color", "¿De qué color es?"],
+      ["texture", "¿Cuál es su textura?"], ["feel", "¿Cómo se siente?"],
+      ["shape", "¿Qué forma tiene?"], ["location", "¿Dónde está ubicado?"],
+      ["moved", "¿Se ha movido?"], ["see", "¿Qué ves?"],
+      ["taste", "¿A qué sabe?"], ["hear", "¿Qué escuchas?"],
+    ],
+    PERSONIFY: [
+      ["person", "Si fuera una persona, ¿qué tipo de persona sería?"],
+      ["body_position", "¿Cuál es la posición de su cuerpo?"],
+    ],
+    CONTACT: "Haz contacto con eso.",
+    VOICE: "¿Qué está diciendo? ¿Cuál es la contraintención?",
+    REPEAT_NEG: "Dilo diez veces: ",
+    CANCEL: "Ahora di: cancelar, cancelar.",
+    REPLACE: "¿Con qué quieres reemplazarlo? ¿Cómo quieres que sea tu autoimagen? Elige una afirmación o palabra positiva que esté en armonía con la verdad absoluta y tu potencial infinito.",
+    REPEAT_POS: "Ahora dilo diez veces: ",
+    CHECK: "Vuelve a la sensación. En una escala del 0 al 10, ¿cuál es la intensidad ahora?",
+    AGAIN: "Bien. Veámoslo otra vez.",
+    ITEM_DONE: "Ese ya está descargado. ¿Hay algún otro somático que quieras procesar?",
+    NONE_START: "Bien. Podemos parar aquí.",
+    END: "Sesión completa. Muy bien hecho.",
+    DISTRESS: "Hagamos una pausa aquí. Si estás en crisis o pensando en hacerte daño, por favor busca ayuda ahora mismo. En Estados Unidos, llama o envía un mensaje de texto al 988; hay atención en español.",
+    REPEAT_Q: "Perdón, no te entendí.",
+    CONTINUE: "Continuemos.",
+  },
+  EXTRA: {
+    temperature: "¿Qué temperatura tiene?",
+    motion: "¿Se está moviendo? ¿Cómo es el movimiento?",
+    weight: "¿Qué tan pesado o ligero es?",
+    emotion: "¿Qué emoción hay en eso?",
+    brightness: "¿Qué tan brillante u oscuro es?",
+    size: "¿Qué tan grande es?",
+    depth: "¿Qué tan profundo es?",
+    pressure: "¿Cuánta presión tiene?",
+    volume: "¿Qué tan fuerte o suave suena?",
+    timbre: "¿Cuál es el tono o la calidad de su sonido?",
+    rhythm: "¿Tiene un ritmo o un patrón?",
+    external_movement: "¿Hay algo moviéndose a su alrededor?",
+    pain: "¿Hay algún dolor en eso? ¿Cómo es?",
+    organic: "¿Qué sientes dentro de tu cuerpo alrededor de eso?",
+    effort: "¿Se siente como esfuerzo, fuerza o resistencia?",
+    balance: "¿Afecta tu equilibrio?",
+    time: "¿Cuánto tiempo lleva ahí?",
+  },
+  MEM: {
+    ANY: "¿Hay un recuerdo aquí?",
+    WHAT: "¿Cuál es el recuerdo? Dale un nombre corto.",
+    SITUATION: "Describe la situación.",
+    CHARGE: "En una escala del 1 al 10, ¿cuánta carga tiene el recuerdo?",
+    BEGIN: "Ve al comienzo del recuerdo.",
+    PERCEPTICS: [
+      ["see", "¿Qué ves?"], ["hear", "¿Qué escuchas?"], ["smell", "¿Qué hueles?"],
+      ["taste", "¿Qué saboreas?"], ["touch", "¿Qué sientes que te toca?"],
+      ["emotion", "¿Qué emoción hay?"], ["where", "¿Dónde estás?"],
+    ],
+    THROUGH: "Recorre el recuerdo hasta el final. Dime qué pasa.",
+    CHECK: "En una escala del 0 al 10, ¿cuánta carga tiene el recuerdo ahora?",
+    AGAIN: "Bien. Vuelve al comienzo del recuerdo.",
+    BACK: "Bien. Vuelve a la sensación.",
+  },
+  EXP: {
+    WHAT: "¿Cuál fue la experiencia? Descríbela brevemente.",
+    IDEAL: "¿Cuál sería el resultado ideal?",
+    BEGIN: "Vuelve a la experiencia.",
+    AGAIN: "Bien. Vuelve otra vez a la experiencia.",
+    PERCEPTICS: [
+      ["where", "¿Dónde estabas?"], ["time_of_day", "¿Qué hora del día era?"], ["see", "¿Qué veías?"],
+      ["walls", "¿De qué color eran las paredes o las cosas a tu alrededor?"], ["smell", "¿Qué olores había?"],
+      ["hear", "¿Qué escuchabas?"], ["feel", "¿Qué sensaciones había en tu cuerpo?"], ["temperature", "¿Cuál era la temperatura?"],
+      ["touch", "¿Qué estabas tocando, o qué te estaba tocando?"], ["notice", "¿Qué notaste que no era óptimo?"],
+    ],
+    CHECK: "Mira la experiencia otra vez. ¿Hay algo en ella que todavía no sea óptimo?",
+  },
+  REQUIREMENTS: [
+    "No tienes tanta hambre como para que te distraiga.",
+    "Te sientes con suficiente energía y alerta para participar.",
+    "Estás lo bastante despierto o despierta para concentrarte sin luchar contra el sueño.",
+    "No tienes dolor fuerte, enfermedad, náuseas ni demasiado calor que te impidan concentrarte.",
+    "No tienes tanta sed como para distraerte. Si la necesitas, toma agua primero.",
+    "Nada te está causando intoxicación, alteración, somnolencia inusual o confusión, como alcohol, drogas o medicamentos. Si algo te la causa, no empieces hasta que el efecto haya pasado por completo.",
+    "Nada urgente te necesita primero, como ir al baño, comer, una llamada importante o una emergencia.",
+    "Puedes concentrarte cómodamente y hablar con el auditor.",
+    "Quieres comenzar la sesión ahora mismo.",
+  ],
+  GROUPS: {
+    light: { name: "Procesamiento Ligero", desc: "Despeja lo que está en la superficie. No se hace surgir nada ni se trabajan recuerdos." },
+    memory: { name: "Procesamiento Profundo", desc: "Lo hace surgir describiendo la situación y procesa recuerdos pasados." },
+  },
+  MODES: (() => {
+    const emotion = { noun: "Emociones negativas", name_q: "¿Cuál es la emoción?",
+      lines: { START: "¿Tienes alguna emoción negativa que quieras procesar ahora mismo, como enojo, preocupación, miedo o aburrimiento?",
+               ITEM_DONE: "Esa ya está descargada. ¿Hay alguna otra emoción negativa?" } };
+    const feeling = { noun: "Sentimientos limitantes", name_q: "Describe el sentimiento que estás teniendo.",
+      lines: { START: "¿Tienes algún sentimiento limitante que quieras procesar ahora? Algo como: tengo la sensación de que no estamos atrayendo a los clientes correctos.",
+               ITEM_DONE: "Ese ya está descargado. ¿Hay algún otro sentimiento limitante?" } };
+    const more = "Cuéntame más. ¿Qué estaba pasando?";
+    return {
+      somatic_light: { name: "Procesamiento Somático Ligero", noun: "Somáticos",
+        desc: "Encuentra la contraintención, neutralízala, reemplázala con una verdad absoluta y reduce el somático a cero." },
+      negative_emotion: { name: "Procesamiento de Emociones Negativas Ligero", ...emotion,
+        desc: "Encuentra la contraintención, neutralízala, reemplázala con una verdad absoluta y reduce la emoción negativa a cero." },
+      feelings: { name: "Procesamiento de Sentimientos Limitantes Ligero", ...feeling,
+        desc: "Encuentra la contraintención, neutralízala, reemplázala con una verdad absoluta y reduce el sentimiento limitante a cero." },
+      somatic_memory: { name: "Procesamiento Somático con Recuperación de Recuerdos", noun: "Somáticos",
+        desc: "Hace surgir un somático, lo reduce, procesa cualquier recuerdo que aparezca, neutraliza las contraintenciones y las reemplaza con verdades absolutas.",
+        draw: { DESCRIBE: "Describe una ocasión en que tuviste dolor o molestia en el cuerpo. ¿Cuál era la situación?", MORE: more,
+                HAVE: "¿Lo sientes en tu cuerpo ahora mismo?" } },
+      memory_full: { name: "Método de Procesamiento Completo de Recuerdos",
+        desc: "Descarga completa de un recuerdo a la vez, neutralizando contraintenciones y reemplazándolas con verdades absolutas.",
+        lines: { START: "¿Hay algún recuerdo que quieras procesar?", ITEM_DONE: "Ese recuerdo ya está descargado. ¿Hay algún otro recuerdo que quieras procesar?" },
+        draw: { DESCRIBE: "Describe una situación de tu pasado que todavía te moleste.", MORE: more,
+                HAVE: "¿Hay ahí un recuerdo que quieras procesar ahora?" } },
+      experience: { name: "Procesamiento de Experiencias", noun: "Experiencias",
+        desc: "Procesa una experiencia reciente que quieras optimizar y que no tenga somáticos, emociones negativas, sentimientos limitantes ni sentimientos limitantes distintivos.",
+        lines: { START: "¿Tienes alguna experiencia reciente que quieras optimizar?",
+                 VOICE: "¿Cuál es el pensamiento limitante que está actuando como contraintención a una experiencia más óptima?",
+                 ITEM_DONE: "Esa experiencia está optimizada. ¿Hay alguna otra experiencia que quieras optimizar?" } },
+      chains: { name: "Método de Procesamiento en Cadena", desc: "Procesa cada recuerdo y llega al más antiguo de la cadena." },
+      negative_emotion_memory: { name: "Procesamiento de Emociones Negativas", title: "Procesamiento Profundo de Emociones Negativas", ...emotion,
+        desc: "Hace surgir una emoción negativa, neutraliza las contraintenciones y procesa cualquier recuerdo que aparezca.",
+        draw: { DESCRIBE: "Describe una ocasión en que sentiste una emoción negativa como enojo, preocupación, miedo o aburrimiento. ¿Cuál era la situación?", MORE: more,
+                HAVE: "¿Tienes esa emoción ahora mismo?" } },
+      feelings_memory: { name: "Procesamiento de Sentimientos Limitantes", title: "Procesamiento Profundo de Sentimientos Limitantes", ...feeling,
+        desc: "Hace surgir un sentimiento limitante, neutraliza cualquier contraintención, procesa cualquier recuerdo que aparezca y reemplaza las contraintenciones con verdades absolutas.",
+        draw: { DESCRIBE: "Describe una situación en la que tuviste un sentimiento limitante. ¿Qué estaba pasando?", MORE: more,
+                HAVE: "¿Estás teniendo ese sentimiento ahora mismo?" } },
+    };
+  })(),
+  DEFINITIONS: "Un somático es un dolor, una molestia o una sensación negativa en el cuerpo. Una emoción es algo que estás emocionando, como enojo, preocupación, miedo o aburrimiento. Un sentimiento es algo que estás teniendo, como: tengo la sensación de que no estamos atrayendo a los clientes correctos. Una contraintención es lo que el somático, la emoción o el sentimiento está diciendo, una palabra o una frase.",
+  TRUTH: [
+    "En estos procesos, localizamos contraintenciones, las neutralizamos cuando dices \"cancelar, cancelar\" y las reemplazamos con una verdad absoluta.",
+    "¿Qué es una verdad absoluta? Una verdad absoluta es algo que siempre es verdad, 100% verdad, y es la verdad más alta. La verdad absoluta es que Dios está dentro de nosotros, que tenemos provisión infinita y que el reino de los cielos está dentro de nosotros.",
+    "Hay verdades que se manifiestan en la dualidad, como \"soy/me siento débil\", \"tengo dolor\" y \"soy/me siento tonto\".",
+    "Aunque estos sentimientos limitantes, estados del ser y pensamientos puedan ser temporalmente verdaderos en el momento, no son congruentes con la verdad absoluta del poder y los recursos que tenemos dentro de nosotros. Simplemente están limitando la expresión de nuestra luz a través de nuestra identidad.",
+    "Por supuesto, cualquier identidad que elijamos tiene límites, pero aquí estamos haciendo crecer y expandiendo nuestra identidad al arrancar las afirmaciones negativas como si fueran maleza, y reemplazarlas con afirmaciones y postulados más elevados, con menos límites.",
+    "Toda limitación y todo sufrimiento se basan en creer en algo que no es la verdad absoluta. Cuanto más alineamos nuestra mente con las verdades absolutas, con nuestra verdadera identidad, menos sufrimiento experimentamos.",
+    "Estos procesos están diseñados para neutralizar contraintenciones y sembrar nuevas semillas positivas, en armonía con la verdad más alta: que el reino de los cielos está dentro de ti, que eres hijo o hija de Dios y que tienes provisión infinita.",
+  ],
+  // Report labels for the perceptic keys.
+  KEYS: { smell: "olor", color: "color", texture: "textura", feel: "cómo se siente", shape: "forma", location: "ubicación", moved: "se movió",
+    see: "ve", taste: "sabor", hear: "oye", person: "persona", body_position: "posición del cuerpo", temperature: "temperatura",
+    motion: "movimiento", weight: "peso", emotion: "emoción", brightness: "brillo", size: "tamaño", depth: "profundidad",
+    pressure: "presión", volume: "volumen", timbre: "timbre", rhythm: "ritmo", external_movement: "movimiento alrededor",
+    pain: "dolor", organic: "dentro del cuerpo", effort: "esfuerzo", balance: "equilibrio", time: "tiempo", touch: "tacto", where: "dónde",
+    time_of_day: "hora del día", walls: "paredes y alrededores", notice: "lo que no era óptimo" },
+};
+const keyLabel = k => (LANG === "es" && ES.KEYS[k]) || k;
+if (LANG === "es") {
+  Object.assign(S, ES.S); Object.assign(S_BASE, ES.S);
+  Object.assign(EXTRA, ES.EXTRA); Object.assign(MEM, ES.MEM); Object.assign(EXP, ES.EXP);
+  REQUIREMENTS.splice(0, REQUIREMENTS.length, ...ES.REQUIREMENTS);
+  for (const g of GROUPS) Object.assign(g, ES.GROUPS[g.id]);
+  for (const m of MODES) Object.assign(m, ES.MODES[m.id]);
+  DEFINITIONS = ES.DEFINITIONS;
+  TRUTH.splice(0, TRUTH.length, ...ES.TRUTH);
+}
+
+// Screen text in Spanish, keyed by the English. Static screen text is swapped as it appears (see translateNode).
+const UI_ES = {
+  "Processing App": "App de Procesamiento",
+  "Sign in to start a session. Your sessions are private to you.": "Inicia sesión para comenzar. Tus sesiones son privadas.",
+  "Email": "Correo electrónico", "Password": "Contraseña", "Create account": "Crear cuenta", "Sign in": "Iniciar sesión",
+  "I already have an account": "Ya tengo una cuenta", "First time? Create an account": "¿Primera vez? Crea una cuenta",
+  "Check your email for a confirmation link, then come back and sign in.": "Revisa tu correo para encontrar el enlace de confirmación y luego vuelve a iniciar sesión.",
+  "Your account ({0}) hasn't been activated yet. Once it's turned on, close and reopen the app.": "Tu cuenta ({0}) todavía no está activada. Cuando la activen, cierra la app y vuelve a abrirla.",
+  "Sign out": "Cerrar sesión", "Past sessions": "Sesiones anteriores", "Choose a style of processing.": "Elige un estilo de procesamiento.",
+  "Not turned on for your account yet": "Todavía no está activado para tu cuenta",
+  "Absolute Truth, Understanding and Concepts": "Verdad Absoluta, Comprensión y Conceptos",
+  "Voice input doesn't work from the home screen on this iPhone. Open the app in Safari for voice, or type your answers.": "La entrada de voz no funciona desde la pantalla de inicio en este iPhone. Abre la app en Safari para usar la voz, o escribe tus respuestas.",
+  "Voice input doesn't work in Samsung Internet. Open this link in Chrome for voice, or type your answers.": "La entrada de voz no funciona en Samsung Internet. Abre este enlace en Chrome para usar la voz, o escribe tus respuestas.",
+  "Voice input isn't available in this browser. You can type your answers. On iPhone use Safari; on Android use Chrome.": "La entrada de voz no está disponible en este navegador. Puedes escribir tus respuestas. En iPhone usa Safari; en Android usa Chrome.",
+  "version": "versión", "Family": "Familia", "Voice": "Voz", "Change password": "Cambiar contraseña",
+  "AI: on": "IA: activada", "AI: off": "IA: desactivada",
+  "New people get Light Processing only. Turn on Deep when they're ready. After you add someone, they tap \"First time? Create an account\" on the sign-in screen with that same email.": "Las personas nuevas solo tienen Procesamiento Ligero. Activa el Profundo cuando estén listas. Después de agregar a alguien, esa persona toca \"¿Primera vez? Crea una cuenta\" en la pantalla de inicio de sesión con ese mismo correo.",
+  "Their email address": "Su correo electrónico", "Email to add": "Correo para agregar", "Add person": "Agregar persona", "Loading...": "Cargando...",
+  "Added {0} with Light Processing.": "Se agregó a {0} con Procesamiento Ligero.",
+  "Couldn't add that email. Check it and try again.": "No se pudo agregar ese correo. Revísalo e inténtalo de nuevo.",
+  "Couldn't load the family list. Check your connection.": "No se pudo cargar la lista de la familia. Revisa tu conexión.",
+  "Admin": "Administrador", "Has an account": "Tiene cuenta", "Hasn't created an account yet": "Todavía no ha creado su cuenta",
+  "Light and Deep": "Ligero y Profundo", "Deep Processing:": "Procesamiento Profundo:", "on": "activado", "off": "desactivado",
+  "Turn Deep off": "Desactivar Profundo", "Turn Deep on": "Activar Profundo", "Remove": "Quitar", "Tap again to remove": "Toca otra vez para quitar",
+  "Couldn't change that. Try again.": "No se pudo cambiar. Inténtalo de nuevo.",
+  "Deep Processing is on for {0}.": "El Procesamiento Profundo está activado para {0}.",
+  "Deep Processing is off for {0}.": "El Procesamiento Profundo está desactivado para {0}.",
+  "Couldn't remove that person. Try again.": "No se pudo quitar a esa persona. Inténtalo de nuevo.",
+  "Removed {0}. Their past sessions are kept.": "Se quitó a {0}. Sus sesiones anteriores se conservan.",
+  "Back": "Atrás", "Coming later": "Próximamente",
+  "Tap a voice to hear it, then tap Use this voice. Voices marked Premium or Enhanced sound the most natural.": "Toca Escuchar para oír una voz y luego toca Usar. Las voces marcadas como Premium o Mejorada suenan más naturales.",
+  "Want more choices? On iPhone go to Settings, Accessibility, Spoken Content, Voices, English, and download a Premium voice. Then come back here.": "¿Quieres más opciones? En iPhone ve a Configuración, Accesibilidad, Contenido leído, Voces, Español, y descarga una voz Premium. Luego vuelve aquí.",
+  "Want more choices? On Samsung go to Settings, General management, Text-to-speech, choose Google as the engine, and install voice data. Then come back here.": "¿Quieres más opciones? En Samsung ve a Ajustes, Administración general, Texto a voz, elige Google como motor e instala los datos de voz en español. Luego vuelve aquí.",
+  "No English voices found on this phone yet. Close and reopen the app, then try again.": "Todavía no se encontraron voces en español en este teléfono. Cierra y vuelve a abrir la app, y luego inténtalo de nuevo.",
+  "Play": "Escuchar", "Use": "Usar", "in use": "en uso",
+  "Where do you feel it in your body? What is the color?": "¿Dónde lo sientes en tu cuerpo? ¿De qué color es?",
+  "New password": "Contraseña nueva", "Type it again": "Escríbela otra vez", "Save new password": "Guardar contraseña nueva",
+  "The two passwords don't match. Try again.": "Las dos contraseñas no coinciden. Inténtalo de nuevo.",
+  "Saved. Use your new password next time you sign in.": "Guardada. Usa tu contraseña nueva la próxima vez que inicies sesión.",
+  "Speaking": "Hablando", "Listening": "Escuchando", "One moment": "Un momento", "Tap the mic or type": "Toca el micrófono o escribe",
+  "Stop session": "Detener sesión", "Done": "Listo", "Or type your answer": "O escribe tu respuesta", "Send": "Enviar", "Tap to talk": "Toca para hablar",
+  "Voice input doesn't work in Samsung Internet. Type your answers, or open the app in Chrome for voice.": "La entrada de voz no funciona en Samsung Internet. Escribe tus respuestas o abre la app en Chrome para usar la voz.",
+  "Tap the mic to talk, or type your answer. If tapping doesn't help, allow the microphone in your phone's settings.": "Toca el micrófono para hablar o escribe tu respuesta. Si no funciona, permite el micrófono en los ajustes de tu teléfono.",
+  "Say it ten times:\n“{0}”": "Dilo diez veces:\n“{0}”",
+  "Saving your session...": "Guardando tu sesión...",
+  "Session saved": "Sesión guardada", "Support": "Ayuda", "Back to menu": "Volver al menú",
+  '<p>If you are in crisis or thinking about hurting yourself, reach out now. In the US, call or text <b>988</b> (Suicide &amp; Crisis Lifeline). Outside the US, contact your local emergency number.</p>':
+    '<p>Si estás en crisis o pensando en hacerte daño, busca ayuda ahora. En Estados Unidos, llama o envía un texto al <b>988</b> (Línea de Prevención del Suicidio y Crisis), con atención en español. Fuera de Estados Unidos, llama al número de emergencias de tu país.</p>',
+  "This session didn't finish, so there is no report.": "Esta sesión no terminó, así que no hay informe.",
+  "Edit notes": "Editar notas", "Save": "Guardar", "Cancel": "Cancelar", "Session notes": "Notas de la sesión",
+  "Couldn't save. Check your connection and try again.": "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo.",
+  "Couldn't load sessions. Check your connection and try again.": "No se pudieron cargar las sesiones. Revisa tu conexión e inténtalo de nuevo.",
+  "No sessions yet. Your first one will show up here.": "Todavía no hay sesiones. La primera aparecerá aquí.",
+  "Session": "Sesión", "Invitation to send": "Invitación para enviar",
+  "Copy this and paste it into your own email or text.": "Cópiala y pégala en tu propio correo o mensaje de texto.",
+  "Invitation text": "Texto de la invitación", "Copy text": "Copiar texto",
+  "Copied. Paste it into your email.": "Copiado. Pégalo en tu correo.",
+  "Couldn't copy. Press and hold in the box to copy it.": "No se pudo copiar. Mantén presionado el cuadro para copiarlo.", "Delete session": "Borrar sesión", "Tap again to delete for good": "Toca otra vez para borrarla definitivamente",
+  "Couldn't delete. Check your connection and try again.": "No se pudo borrar. Revisa tu conexión e inténtalo de nuevo.",
+  // outcomes (stored in English, shown translated)
+  "completed": "completada", "no charge present": "sin carga presente", "not ready": "no se comenzó", "stopped by user": "detenida por la persona",
+  "ended by an error": "terminó por un error", "paused for safety": "pausada por seguridad", "not finished": "sin terminar",
+  // report
+  "{0} Session": "Sesión de {0}", "DRAWN UP": "LO QUE SURGIÓ", "READINESS": "PREPARACIÓN",
+  "requirements reviewed": "requisitos revisados", "ready to begin": "lista para comenzar", "yes": "sí", "no": "no", " (taken care of)": " (resuelto)",
+  "ITEM {0}: {1}": "TEMA {0}: {1}", "(not located)": "(sin ubicar)", "Starting intensity: {0}": "Intensidad inicial: {0}", "Cycle {0}": "Ciclo {0}",
+  "Counter-intention: \"{0}\" (said {1}x, canceled)": "Contraintención: \"{0}\" (dicha {1} veces, cancelada)",
+  "Seed: \"{0}\" (said {1}x)": "Semilla: \"{0}\" (dicha {1} veces)", "Intensity after: {0}": "Intensidad después: {0}",
+  "RESULT": "RESULTADO", "Ideal outcome: {0}": "Resultado ideal: {0}", "Optimal now: {0}": "Óptimo ahora: {0}",
+  "{0} optimized: {1} of {2}.": "{0}: se optimizaron {1} de {2}.", "Still open: {0}": "Sigue abierto: {0}", "Memories discharged: {0} of {1}.": "Recuerdos descargados: {0} de {1}.",
+  "{0} discharged: {1} of {2}, all intensity zero.": "{0}: se descargaron {1} de {2}, toda la intensidad en cero.",
+  "{0} discharged: {1} of {2}.": "{0}: se descargaron {1} de {2}.",
+  "Still open: {0} (last intensity {1})": "Sigue abierto: {0} (última intensidad {1})",
+  "Counter-intentions erased (canceled):": "Contraintenciones borradas (canceladas):", "Positive seeds planted:": "Semillas positivas plantadas:", "none": "ninguna",
+  "AI use: switched off": "Uso de IA: desactivado",
+  "AI use: {0} calls, {1} tokens in, {2} tokens out, about ${3}": "Uso de IA: {0} llamadas, {1} tokens de entrada, {2} de salida, aproximadamente ${3}",
+  "MEMORY {0}": "RECUERDO {0}", "Memory": "Recuerdo", "(not named)": "(sin nombre)", "Situation: {0}": "Situación: {0}",
+  "Starting charge: {0}": "Carga inicial: {0}", "Pass {0}": "Pasada {0}", "What happens: {0}": "Qué pasa: {0}", "Charge after: {0}": "Carga después: {0}",
+};
+
 // ---------------------------------------------------------------- parsing (no AI)
-const NUM = { zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10 };
+const NUM = { zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10,
+              cero:0, uno:1, una:1, dos:2, tres:3, cuatro:4, cinco:5, seis:6, siete:7, ocho:8, nueve:9, diez:10 };
+// Lower case without accents, so "sí" matches "si" and "sesión" matches "sesion".
+const fold = t => t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 // Cheap check before asking the AI whether the person asked the app something.
-const QUESTION_START = /^(what|why|how|who|where|when|which|can|could|would|should|will|is|are|am|do|does|did|was|were|tell me|explain|i have a question|question|i don't understand|i do not understand|i'm confused|i am confused|repeat|say that again|huh|pardon|sorry what)\b/;
-const looksLikeQuestion = t => !!t && (t.trim().endsWith("?") || QUESTION_START.test(t.trim().toLowerCase()));
-const words = t => t.toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
+const QUESTION_START = /^(what|why|how|who|where|when|which|can|could|would|should|will|is|are|am|do|does|did|was|were|tell me|explain|i have a question|question|i don't understand|i do not understand|i'm confused|i am confused|repeat|say that again|huh|pardon|sorry what|que|por que|como|quien|donde|cuando|cual|cuanto|cuanta|puedes|puede|podrias|explica|explicame|tengo una pregunta|una pregunta|no entiendo|no comprendo|estoy confundido|estoy confundida|repite|repitelo|repitemelo|otra vez|perdon|disculpa|mande)\b/;
+const looksLikeQuestion = t => !!t && (t.trim().endsWith("?") || QUESTION_START.test(fold(t).replace(/^[\s¿¡"']+/, "")));
+const words = t => fold(t).replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
 function parseNumber(t) {
-  const low = t.toLowerCase();
-  if (/\b(gone|nothing|none|no more|disappeared)\b/.test(low)) return 0;
+  const low = fold(t);
+  if (/\b(gone|nothing|none|no more|disappeared|nada|ninguno|ninguna|ya no|desaparecio|se fue)\b/.test(low)) return 0;
   const m = low.match(/\b(10|[0-9])\b/); if (m) return +m[1];
   for (const w of words(low)) if (w in NUM) return NUM[w];
   return null;
 }
 function parseYesNo(t) {
   const s = " " + words(t).join(" ") + " ";
-  if (/ (no|nope|nothing|none|not really|not ready|i don't|i'm not) /.test(s)) return false;
-  if (/ (yes|yeah|yep|yup|i do|sure|there is|a little|some|ready|i'm ready|i am ready) /.test(s)) return true;
+  if (/ (no|nope|nothing|none|not really|not ready|i don't|i'm not|nada|ninguno|ninguna|todavia no|aun no) /.test(s)) return false;
+  if (/ (yes|yeah|yep|yup|i do|sure|there is|a little|some|ready|i'm ready|i am ready|si|claro|por supuesto|tengo|hay|un poco|algo|listo|lista|de acuerdo|vale|empecemos|vamos) /.test(s)) return true;
   return null;
 }
 function countReps(transcript, phrase) {
@@ -277,12 +568,12 @@ function countReps(transcript, phrase) {
 // The counter-intention or seed can be one word or a phrase; drop lead-ins like "it's saying".
 function cleanPhrase(t) {
   return t.trim()
-    .replace(/^(it'?s saying|it is saying|it says|it's telling me|it tells me|saying|i want to replace it with|replace it with|i want it to be|i want)\s*[:,]?\s*/i, "")
-    .replace(/^["'“”]+|["'“”.]+$/g, "")
+    .replace(/^(it'?s saying|it is saying|it says|it's telling me|it tells me|saying|i want to replace it with|replace it with|i want it to be|i want|me est[aá] diciendo|est[aá] diciendo|me dice|dice|diciendo|quiero reemplazarlo con|reemplazarlo con|reempl[aá]zalo con|quiero que sea|quiero)\s*[:,]?\s*/i, "")
+    .replace(/^["'“”«]+|["'“”».]+$/g, "")
     .trim() || t.trim();
 }
-const isStop = t => /\b(stop session|end session|stop the session)\b/i.test(t) || /^\s*(stop|pause)\s*$/i.test(t);
-const isDistress = t => /(kill myself|suicide|hurt myself|end my life|want to die|self harm)/i.test(t);
+const isStop = t => /\b(stop session|end session|stop the session|deten(er)? (la )?sesion|termina(r)? (la )?sesion|para(r)? (la )?sesion)\b/.test(fold(t)) || /^(stop|pause|alto|detente|pausa)$/.test(words(t).join(" "));
+const isDistress = t => /(kill myself|suicide|hurt myself|end my life|want to die|self harm|matarme|suicid|hacerme dano|quitarme la vida|quiero morir|me quiero morir|lastimarme|autolesion|no quiero vivir)/.test(fold(t));
 
 // ---------------------------------------------------------------- voice
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -292,11 +583,12 @@ function srError(e) {
   if (!/not-allowed|service-not-allowed/.test(e.error)) return;
   srBlocked = true; // until the next tap on the mic, which counts as permission on iPhone
   ui.status("waiting"); ui.listening(false);
-  ui.heard(IS_SAMSUNG_BROWSER
+  ui.heard(T(IS_SAMSUNG_BROWSER
     ? "Voice input doesn't work in Samsung Internet. Type your answers, or open the app in Chrome for voice."
-    : "Tap the mic to talk, or type your answer. If tapping doesn't help, allow the microphone in your phone's settings.");
+    : "Tap the mic to talk, or type your answer. If tapping doesn't help, allow the microphone in your phone's settings."));
 }
 let voice = null;
+const VOICE_KEY = LANG === "es" ? "voiceName_es" : "voiceName"; // a saved voice for each language
 // Phones list robotic novelty voices (iPhone's Fred, Eddy, Grandpa...). Never pick those on our own.
 const ROBOTIC = /\b(albert|bad news|bahh|bells|boing|bubbles|cellos|fred|good news|jester|junior|kathy|organ|ralph|superstar|trinoids|whisper|wobble|zarvox|eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley|hysterical)\b/i;
 function voiceScore(v) {
@@ -306,18 +598,18 @@ function voiceScore(v) {
   if (/enhanced/i.test(v.name)) s += 40;
   if (/natural|neural|online/i.test(v.name)) s += 30;
   if (/google/i.test(v.name)) s += 20;
-  if (/samantha|ava|allison|susan|nicky|zoe|evan|tom|aria|jenny/i.test(v.name)) s += 15;
-  if (/^en[-_]US/i.test(v.lang)) s += 10; // Android may write "en_US"; Samsung lists many accents
+  if (/samantha|ava|allison|susan|nicky|zoe|evan|tom|aria|jenny|paulina|monica|mónica|juan|jorge|diego|marisol|angelica|angélica/i.test(v.name)) s += 15;
+  if ((LANG === "es" ? /^es[-_](US|MX)/i : /^en[-_]US/i).test(v.lang)) s += 10; // Android may write "en_US"; Samsung lists many accents
   if (v.default) s += 5;
   return s;
 }
 function englishVoices() {
-  return speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang)).sort((a, b) => voiceScore(b) - voiceScore(a));
+  return speechSynthesis.getVoices().filter(v => (LANG === "es" ? /^es/i : /^en/i).test(v.lang)).sort((a, b) => voiceScore(b) - voiceScore(a));
 }
 function pickVoice() {
   const vs = englishVoices();
   let saved = null;
-  try { saved = localStorage.getItem("voiceName"); } catch {}
+  try { saved = localStorage.getItem(VOICE_KEY); } catch {}
   voice = (saved && vs.find(v => v.name === saved)) || vs[0] || null;
 }
 if ("speechSynthesis" in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
@@ -347,7 +639,7 @@ async function say(text) {
     if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     if (voice) u.voice = voice;
-    u.lang = voice?.lang || "en-US";
+    u.lang = voice?.lang || SR_LANG;
     u.rate = IS_IOS ? 0.9 : 0.95; // iOS speaks faster at the same rate
     let t = null;
     const done = () => { clearTimeout(t); resolve(); };
@@ -379,7 +671,7 @@ function getAnswer({ autoContinueMs = 0 } = {}) {
       if (!SR || srBlocked || settled) { ui.status("waiting"); ui.listening(false); return; }
       const old = rec; rec = null;
       try { old && old.abort(); } catch {}
-      const me = rec = new SR(); me.lang = "en-US"; me.interimResults = true; me.continuous = false;
+      const me = rec = new SR(); me.lang = SR_LANG; me.interimResults = true; me.continuous = false;
       let text = "";
       me.onresult = e => {
         if (rec !== me) return;
@@ -433,7 +725,7 @@ function countTen(phrase) {
       if (!SR || srBlocked || settled) { ui.listening(false); return; }
       const old = rec; rec = null;
       try { old && old.abort(); } catch {}
-      const me = rec = new SR(); me.lang = "en-US"; me.interimResults = true; me.continuous = true;
+      const me = rec = new SR(); me.lang = SR_LANG; me.interimResults = true; me.continuous = true;
       base = count;
       me.onresult = e => {
         if (rec !== me) return;
@@ -465,7 +757,7 @@ async function ai(task, payload, timeoutMs) {
 
 // ---------------------------------------------------------------- the procedure
 // What the AI needs to answer a question the person asks mid-session.
-const qaPayload = (line, answer) => ({ question: line, answer, mode: modeTitle(session.mode), concepts: [DEFINITIONS, ...TRUTH] });
+const qaPayload = (line, answer) => ({ question: line, answer, mode: modeTitle(session.mode), concepts: [DEFINITIONS, ...TRUTH], lang: LANG });
 const MAX_QUESTIONS = 3; // per app question, so a misheard answer can't loop forever
 
 // Asks one question and returns the answer. If the person asks the app something instead of answering,
@@ -529,7 +821,7 @@ async function askParsed(line, parse, kind) {
 
 async function repeatTen(intro, phrase) {
   await say(intro + phrase);
-  ui.question(`Say it ten times:\n“${phrase}”`);
+  ui.question(T("Say it ten times:\n“{0}”", phrase));
   return countTen(phrase);
 }
 
@@ -589,6 +881,24 @@ async function processMemory(mem) {
     pass.after = await askParsed(MEM.CHECK, parseNumber, "number");
     saveProgress();
     if (pass.after === 0) return;
+  }
+}
+
+// One experience: percepts, the limiting thought, cancel, the replacement, until nothing about it is suboptimal.
+async function runExperienceItem() {
+  const item = { name: null, ideal: null, cycles: [] };
+  session.items.push(item);
+  item.name = cleanPhrase(await ask(EXP.WHAT, { reflect: true }));
+  item.ideal = await ask(EXP.IDEAL, { reflect: true });
+  for (let c = 0; c < MAX_CYCLES; c++) {
+    const cyc = { perceptics: {}, counter: null, negCount: 0, seed: null, posCount: 0, after: null };
+    item.cycles.push(cyc);
+    await say(c ? EXP.AGAIN : EXP.BEGIN);
+    for (const [key, q] of EXP.PERCEPTICS) cyc.perceptics[key] = await ask(q, { reflect: true });
+    await neutralize(cyc);
+    cyc.after = (await askParsed(EXP.CHECK, parseYesNo, "yesno")) ? 1 : 0; // 0: nothing left that isn't optimal
+    saveProgress();
+    if (cyc.after === 0) return;
   }
 }
 
@@ -665,7 +975,7 @@ async function runSession(mode) {
       if (!(await askParsed(S.START, parseYesNo, "yesno")) && !(await drawUp(mode.draw))) { session.outcome = "no charge present"; await say(S.NONE_START); }
       else {
         while (true) {
-          await (mode.item === "memory" ? runMemoryItem() : runItem());
+          await (mode.item === "memory" ? runMemoryItem() : mode.item === "experience" ? runExperienceItem() : runItem());
           if (!(await askParsed(S.ITEM_DONE, parseYesNo, "yesno"))) break;
         }
         await say(S.END);
@@ -680,9 +990,9 @@ async function runSession(mode) {
   if (session.opened) { try { await closeSession(); } catch {} }
   if (session.outcome === "paused for safety") await say(S.DISTRESS);
   try { wakeLock?.release(); } catch {}
-  ui.status("thinking"); ui.question("Saving your session...");
+  ui.status("thinking"); ui.question(T("Saving your session..."));
   let summary = null;
-  if (session.items.length || session.memories.length) summary = await ai("summary", { log: logData() }, 20000);
+  if (session.items.length || session.memories.length) summary = await ai("summary", { log: logData(), lang: LANG }, 20000);
   const report = buildReport(summary);
   await sb.from("auditor_sessions").update({ ended_at: new Date().toISOString(), outcome: session.outcome, log: logData(), report }).eq("id", session.id);
   const s = session; session = null;
@@ -698,24 +1008,24 @@ async function saveProgress() {
 }
 
 function buildReport(summary) {
-  const fmt = d => d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-  const L = [`${modeTitle(session.mode)} Session`, `${fmt(session.started)}  ·  ${session.outcome}`, ""];
+  const fmt = d => d.toLocaleString(LOCALE, { dateStyle: "medium", timeStyle: "short" });
+  const L = [T("{0} Session", modeTitle(session.mode)), `${fmt(session.started)}  ·  ${T(session.outcome)}`, ""];
   if (summary) L.push(summary, "");
-  if (session.drawn.length) L.push("DRAWN UP", ...session.drawn.map(d => `  ${d}`), "");
+  if (session.drawn.length) L.push(T("DRAWN UP"), ...session.drawn.map(d => `  ${d}`), "");
   if (session.checklist.length) {
-    L.push("READINESS");
-    for (const c of session.checklist) L.push(`  ${c.ok ? "✓" : c.resolved ? "↻" : "✕"} ${c.key}: ${c.answer}${c.resolved ? " (taken care of)" : ""}`);
+    L.push(T("READINESS"));
+    for (const c of session.checklist) L.push(`  ${c.ok ? "✓" : c.resolved ? "↻" : "✕"} ${T(c.key)}: ${T(c.answer)}${c.resolved ? T(" (taken care of)") : ""}`);
     L.push("");
   }
   session.items.forEach((it, i) => {
-    L.push(`ITEM ${i + 1}: ${[it.name, it.location].filter(Boolean).join(", ") || "(not located)"}`, `Starting intensity: ${it.start ?? "-"}`);
+    L.push(T("ITEM {0}: {1}", i + 1, [it.name, it.location].filter(Boolean).join(", ") || T("(not located)")), it.ideal != null ? T("Ideal outcome: {0}", it.ideal) : T("Starting intensity: {0}", it.start ?? "-"));
     it.cycles.forEach((c, j) => {
-      L.push(`  Cycle ${j + 1}`);
-      for (const [k, v] of Object.entries(c.perceptics)) L.push(`    ${k}: ${v}`);
+      L.push(`  ${T("Cycle {0}", j + 1)}`);
+      for (const [k, v] of Object.entries(c.perceptics)) L.push(`    ${keyLabel(k)}: ${v}`);
       if (c.memory) L.push(...memoryLines(c.memory, "    "));
-      if (c.counter) L.push(`    Counter-intention: "${c.counter}" (said ${c.negCount}x, canceled)`);
-      if (c.seed) L.push(`    Seed: "${c.seed}" (said ${c.posCount}x)`);
-      if (c.after !== null) L.push(`    Intensity after: ${c.after}`);
+      if (c.counter) L.push(`    ${T("Counter-intention: \"{0}\" (said {1}x, canceled)", c.counter, c.negCount)}`);
+      if (c.seed) L.push(`    ${T("Seed: \"{0}\" (said {1}x)", c.seed, c.posCount)}`);
+      if (c.after !== null) L.push(`    ${it.ideal != null ? T("Optimal now: {0}", T(c.after === 0 ? "yes" : "no")) : T("Intensity after: {0}", c.after)}`);
     });
     L.push("");
   });
@@ -726,32 +1036,33 @@ function buildReport(summary) {
   const recs = [...session.items.flatMap(it => it.cycles), ...memories.flatMap(m => m.passes)];
   const counters = recs.filter(c => c.counter && c.negCount).map(c => c.counter);
   const seeds = recs.filter(c => c.seed && c.posCount).map(c => c.seed);
-  L.push("RESULT");
-  if (memories.length) L.push(`Memories discharged: ${memDone.length} of ${memories.length}.`);
-  if (session.mode.item !== "memory") L.push(session.items.length && discharged.length === session.items.length
-    ? `${session.mode.noun} discharged: ${discharged.length} of ${session.items.length}, all intensity zero.`
-    : `${session.mode.noun} discharged: ${discharged.length} of ${session.items.length}.`);
+  L.push(T("RESULT"));
+  if (memories.length) L.push(T("Memories discharged: {0} of {1}.", memDone.length, memories.length));
+  if (session.mode.item === "experience") L.push(T("{0} optimized: {1} of {2}.", session.mode.noun, discharged.length, session.items.length));
+  else if (session.mode.item !== "memory") L.push(session.items.length && discharged.length === session.items.length
+    ? T("{0} discharged: {1} of {2}, all intensity zero.", session.mode.noun, discharged.length, session.items.length)
+    : T("{0} discharged: {1} of {2}.", session.mode.noun, discharged.length, session.items.length));
   session.items.filter(it => !discharged.includes(it)).forEach(it =>
-    L.push(`  Still open: ${it.name || it.location} (last intensity ${it.cycles.length ? last(it.cycles).after : it.start})`));
-  L.push("", "Counter-intentions erased (canceled):", ...(counters.length ? counters.map(c => `  ✕ ${c}`) : ["  none"]));
-  L.push("", "Positive seeds planted:", ...(seeds.length ? seeds.map(s => `  ✓ ${s}`) : ["  none"]));
+    L.push(`  ${it.ideal != null ? T("Still open: {0}", it.name) : T("Still open: {0} (last intensity {1})", it.name || it.location, it.cycles.length ? last(it.cycles).after : it.start)}`));
+  L.push("", T("Counter-intentions erased (canceled):"), ...(counters.length ? counters.map(c => `  ✕ ${c}`) : [`  ${T("none")}`]));
+  L.push("", T("Positive seeds planted:"), ...(seeds.length ? seeds.map(s => `  ✓ ${s}`) : [`  ${T("none")}`]));
   const u = session.usage, cost = u.input * PRICE_IN + u.output * PRICE_OUT;
-  if (!session.aiOn) L.push("", "AI use: switched off");
-  else L.push("", `AI use: ${u.calls} calls, ${u.input} tokens in, ${u.output} tokens out, about $${cost.toFixed(4)}`);
+  if (!session.aiOn) L.push("", T("AI use: switched off"));
+  else L.push("", T("AI use: {0} calls, {1} tokens in, {2} tokens out, about ${3}", u.calls, u.input, u.output, cost.toFixed(4)));
   return L.join("\n");
 }
 
 function memoryLines(m, pad, n) {
-  const L = [`${pad}${n ? `MEMORY ${n}` : "Memory"}: ${m.name || "(not named)"}`];
-  if (m.situation) L.push(`${pad}  Situation: ${m.situation}`);
-  L.push(`${pad}  Starting charge: ${m.start ?? "-"}`);
+  const L = [`${pad}${n ? T("MEMORY {0}", n) : T("Memory")}: ${m.name || T("(not named)")}`];
+  if (m.situation) L.push(`${pad}  ${T("Situation: {0}", m.situation)}`);
+  L.push(`${pad}  ${T("Starting charge: {0}", m.start ?? "-")}`);
   m.passes.forEach((p, j) => {
-    L.push(`${pad}  Pass ${j + 1}`);
-    for (const [k, v] of Object.entries(p.perceptics)) L.push(`${pad}    ${k}: ${v}`);
-    if (p.story) L.push(`${pad}    What happens: ${p.story}`);
-    if (p.counter) L.push(`${pad}    Counter-intention: "${p.counter}" (said ${p.negCount}x, canceled)`);
-    if (p.seed) L.push(`${pad}    Seed: "${p.seed}" (said ${p.posCount}x)`);
-    if (p.after !== null) L.push(`${pad}    Charge after: ${p.after}`);
+    L.push(`${pad}  ${T("Pass {0}", j + 1)}`);
+    for (const [k, v] of Object.entries(p.perceptics)) L.push(`${pad}    ${keyLabel(k)}: ${v}`);
+    if (p.story) L.push(`${pad}    ${T("What happens: {0}", p.story)}`);
+    if (p.counter) L.push(`${pad}    ${T("Counter-intention: \"{0}\" (said {1}x, canceled)", p.counter, p.negCount)}`);
+    if (p.seed) L.push(`${pad}    ${T("Seed: \"{0}\" (said {1}x)", p.seed, p.posCount)}`);
+    if (p.after !== null) L.push(`${pad}    ${T("Charge after: {0}", p.after)}`);
   });
   return L;
 }
@@ -759,6 +1070,65 @@ function memoryLines(m, pad, n) {
 // ---------------------------------------------------------------- screens
 const $app = document.getElementById("app");
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// Spanish: swap static screen text as it's drawn. Spoken lines, answers and reports (data-notr) are left alone.
+function translateNode(n) {
+  if (n.nodeType === 3) {
+    const k = n.nodeValue.trim();
+    if (k && UI_ES[k] !== undefined && !n.parentElement?.closest("[data-notr]")) n.nodeValue = n.nodeValue.replace(k, () => UI_ES[k]);
+  } else if (n.nodeType === 1 && !n.closest("[data-notr]")) {
+    for (const a of ["placeholder", "aria-label"]) { const v = n.getAttribute(a); if (v && UI_ES[v] !== undefined) n.setAttribute(a, UI_ES[v]); }
+    n.childNodes.forEach(translateNode);
+  }
+}
+if (LANG === "es") new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(translateNode))).observe($app, { childList: true, subtree: true });
+const APP_URL = "https://nationwideconstruct2686.github.io/auditor-app/";
+// What the admin copies into an email to invite someone.
+const INVITE = {
+  en: `You're invited to use the Processing App.
+
+1. Open this link on your phone: ${APP_URL}
+   On iPhone use Safari. On Android use Chrome. (Voice doesn't work in Samsung Internet.)
+
+2. Tap "First time? Create an account". Use this same email address and choose a password (at least 6 characters).
+
+3. If it asks you to confirm, check your email for a confirmation link, then come back to the link above and sign in.
+
+4. Allow the microphone when it asks. You can also type your answers.
+
+5. Optional: put it on your home screen so it opens like an app.
+   iPhone (Safari): tap the Share button, then "Add to Home Screen". On iPhone, voice only works when you open it in Safari, so use Safari for voice sessions.
+   Android (Chrome): tap the ⋮ menu, then "Add to Home screen" or "Install app".
+   You don't have to do this. It works fine as a regular web page.
+
+6. To use the app in Spanish, tap "Español" at the bottom of the screen.
+
+You'll start with Light Processing. I'll turn on Deep Processing when you're ready.
+
+Before each session, find a quiet place where you won't be interrupted and read the list of requirements on the screen. You can say "stop" or tap Stop session at any time.`,
+  es: `Te invito a usar la App de Procesamiento.
+
+1. Abre este enlace en tu teléfono: ${APP_URL}
+   En iPhone usa Safari. En Android usa Chrome. (La voz no funciona en Samsung Internet).
+
+2. Toca "First time? Create an account" ("¿Primera vez? Crea una cuenta"). Usa este mismo correo electrónico y elige una contraseña (de al menos 6 caracteres).
+
+3. Si te pide confirmar, revisa tu correo para encontrar el enlace de confirmación y luego vuelve al enlace de arriba e inicia sesión.
+
+4. Permite el micrófono cuando te lo pida. También puedes escribir tus respuestas.
+
+5. Para usar la app en español, toca "Español" en la parte de abajo de la pantalla.
+
+6. Opcional: ponla en tu pantalla de inicio para que se abra como una app.
+   iPhone (Safari): toca el botón Compartir y luego "Agregar a pantalla de inicio". En iPhone, la voz solo funciona cuando la abres en Safari, así que usa Safari para las sesiones con voz.
+   Android (Chrome): toca el menú ⋮ y luego "Agregar a la pantalla principal" o "Instalar app".
+   No es obligatorio. Funciona bien como una página web normal.
+
+Vas a empezar con el Procesamiento Ligero. Yo activaré el Procesamiento Profundo cuando estés listo o lista.
+
+Antes de cada sesión, busca un lugar tranquilo donde nadie te interrumpa y lee la lista de requisitos en la pantalla. Puedes decir "alto" o tocar Detener sesión en cualquier momento.`,
+};
+const LANG_BTN = `<button class="quiet small" id="langbtn">${LANG === "es" ? "English" : "Español"}</button>`;
+const bindLang = () => { document.getElementById("langbtn").onclick = () => setLang(LANG === "es" ? "en" : "es"); };
 const MIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
 
 const ui = {
@@ -771,7 +1141,9 @@ const ui = {
         <button type="submit">${isSignUp ? "Create account" : "Sign in"}</button>
         <p class="small ${msg.startsWith("!") ? "err" : "muted"}" id="authmsg">${esc(msg.replace(/^!/, ""))}</p>
       </form>
-      <button class="quiet" id="toggle">${isSignUp ? "I already have an account" : "First time? Create an account"}</button>`;
+      <button class="quiet" id="toggle">${isSignUp ? "I already have an account" : "First time? Create an account"}</button>
+      <div class="row">${LANG_BTN}</div>`;
+    bindLang();
     document.getElementById("toggle").onclick = () => ui.signIn("", !isSignUp);
     document.getElementById("auth").onsubmit = async e => {
       e.preventDefault();
@@ -791,7 +1163,7 @@ const ui = {
     const { data: acc } = await sb.rpc("auditor_my_access");
     if (acc && !acc.member) {
       $app.innerHTML = `
-        <div class="stack"><h1>Processing App</h1><p class="muted">Your account (${esc(user.email)}) hasn't been activated yet. Once it's turned on, close and reopen the app.</p></div>
+        <div class="stack"><h1>Processing App</h1><p class="muted">${T("Your account ({0}) hasn't been activated yet. Once it's turned on, close and reopen the app.", esc(user.email))}</p></div>
         <button class="quiet" id="out">Sign out</button>`;
       document.getElementById("out").onclick = async () => { await sb.auth.signOut(); ui.signIn(); };
       return;
@@ -808,7 +1180,7 @@ const ui = {
         : IS_SAMSUNG_BROWSER ? "Voice input doesn't work in Samsung Internet. Open this link in Chrome for voice, or type your answers."
         : "Voice input isn't available in this browser. You can type your answers. On iPhone use Safari; on Android use Chrome."}</p>`}
       <span class="spacer"></span>
-      <div class="row small muted"><span>${esc(user.email)} · version ${esc(APP_VERSION)}</span><span class="spacer"></span>${acc?.is_admin ? '<button class="quiet small" id="family">Family</button>' : ""}<button class="quiet small" id="aibtn" hidden></button><button class="quiet small" id="voicebtn">Voice</button><button class="quiet small" id="pwchange">Change password</button><button class="quiet small" id="out">Sign out</button></div>`;
+      <div class="row small muted"><span>${esc(user.email)} · ${T("version")} ${esc(APP_VERSION)}</span><span class="spacer"></span>${LANG_BTN}${acc?.is_admin ? '<button class="quiet small" id="family">Family</button>' : ""}<button class="quiet small" id="aibtn" hidden></button><button class="quiet small" id="voicebtn">Voice</button><button class="quiet small" id="pwchange">Change password</button><button class="quiet small" id="out">Sign out</button></div>`;
     for (const g of GROUPS) if (!locked(g)) $app.querySelector(`[data-group="${g.id}"]`).onclick = () => ui.group(g);
     if (acc?.is_admin) document.getElementById("family").onclick = () => ui.family();
     document.getElementById("hist").onclick = () => ui.history();
@@ -816,6 +1188,7 @@ const ui = {
     document.getElementById("pwchange").onclick = () => ui.changePassword();
     document.getElementById("voicebtn").onclick = () => ui.voices();
     document.getElementById("truth").onclick = () => ui.truth();
+    bindLang();
     ui.aiSwitch(document.getElementById("aibtn"));
   },
 
@@ -845,13 +1218,30 @@ const ui = {
         <input id="newemail" type="email" autocomplete="off" placeholder="Their email address" aria-label="Email to add">
         <div class="row"><button id="add">Add person</button><span class="small ${msg.startsWith("!") ? "err" : "muted"}" id="msg">${esc(msg.replace(/^!/, ""))}</span></div>
       </div>
+      <div class="panel stack">
+        <h2>Invitation to send</h2>
+        <p class="small muted">Copy this and paste it into your own email or text.</p>
+        <div class="row"><button class="small quiet" data-inv="en">English</button><button class="small quiet" data-inv="es">Español</button></div>
+        <textarea class="report" id="invite" readonly data-notr style="min-height:40vh" aria-label="Invitation text"></textarea>
+        <div class="row"><button id="copyinv">Copy text</button><span class="small muted" id="copymsg"></span></div>
+      </div>
       <div class="stack" id="people"><p class="muted">Loading...</p></div>`;
     document.getElementById("back").onclick = () => ui.menu();
+    const inv = document.getElementById("invite");
+    const showInvite = l => { inv.value = INVITE[l]; $app.querySelectorAll("[data-inv]").forEach(b => b.classList.toggle("quiet", b.dataset.inv !== l)); };
+    $app.querySelectorAll("[data-inv]").forEach(b => b.onclick = () => showInvite(b.dataset.inv));
+    showInvite(LANG);
+    document.getElementById("copyinv").onclick = async () => {
+      const msg = document.getElementById("copymsg");
+      try { await navigator.clipboard.writeText(inv.value); }
+      catch { inv.select(); if (!document.execCommand("copy")) { msg.textContent = T("Couldn't copy. Press and hold in the box to copy it."); return; } }
+      msg.textContent = T("Copied. Paste it into your email.");
+    };
     document.getElementById("add").onclick = async () => {
       const email = document.getElementById("newemail").value.trim().toLowerCase();
       if (!email) return;
       const { error } = await sb.rpc("auditor_family_set", { p_email: email, p_deep: false });
-      ui.family(error ? "!Couldn't add that email. Check it and try again." : `Added ${email} with Light Processing.`);
+      ui.family(error ? "!Couldn't add that email. Check it and try again." : T("Added {0} with Light Processing.", email));
     };
     const { data, error } = await sb.rpc("auditor_family_list");
     const box = document.getElementById("people");
@@ -868,14 +1258,14 @@ const ui = {
       const f = data[+b.dataset.deep];
       b.disabled = true;
       const { error } = await sb.rpc("auditor_family_set", { p_email: f.email, p_deep: !f.deep_enabled });
-      ui.family(error ? "!Couldn't change that. Try again." : `Deep Processing is ${f.deep_enabled ? "off" : "on"} for ${f.email}.`);
+      ui.family(error ? "!Couldn't change that. Try again." : T(f.deep_enabled ? "Deep Processing is off for {0}." : "Deep Processing is on for {0}.", f.email));
     });
     // Two taps to remove, so one stray tap can't lock someone out.
     box.querySelectorAll("[data-remove]").forEach(b => b.onclick = async () => {
       if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Tap again to remove"; return; }
       const f = data[+b.dataset.remove];
       const { error } = await sb.rpc("auditor_family_remove", { p_email: f.email });
-      ui.family(error ? "!Couldn't remove that person. Try again." : `Removed ${f.email}. Their past sessions are kept.`);
+      ui.family(error ? "!Couldn't remove that person. Try again." : T("Removed {0}. Their past sessions are kept.", f.email));
     });
   },
 
@@ -909,19 +1299,19 @@ const ui = {
       ${IS_ANDROID ? '<p class="small muted">Want more choices? On Samsung go to Settings, General management, Text-to-speech, choose Google as the engine, and install voice data. Then come back here.</p>' : ""}
       <div class="stack list" id="vlist">${vs.length ? vs.map((v, i) => `
         <div class="row panel" style="padding:10px 12px">
-          <div style="flex:1;min-width:0"><b>${esc(v.name)}</b><br><span class="small muted">${esc(v.lang)}${voice && v.name === voice.name ? " · in use" : ""}</span></div>
+          <div style="flex:1;min-width:0"><b>${esc(v.name)}</b><br><span class="small muted">${esc(v.lang)}${voice && v.name === voice.name ? ` · ${T("in use")}` : ""}</span></div>
           <button class="quiet small" data-play="${i}">Play</button><button class="small" data-use="${i}">Use</button>
         </div>`).join("") : '<p class="muted">No English voices found on this phone yet. Close and reopen the app, then try again.</p>'}
       </div>`;
     document.getElementById("back").onclick = () => ui.menu();
     $app.querySelectorAll("[data-play]").forEach(b => b.onclick = () => {
       speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance("Where do you feel it in your body? What is the color?");
+      const u = new SpeechSynthesisUtterance(T("Where do you feel it in your body? What is the color?"));
       u.voice = vs[+b.dataset.play]; u.lang = u.voice.lang; u.rate = IS_IOS ? 0.9 : 0.95;
       speechSynthesis.speak(u);
     });
     $app.querySelectorAll("[data-use]").forEach(b => b.onclick = () => {
-      try { localStorage.setItem("voiceName", vs[+b.dataset.use].name); } catch {}
+      try { localStorage.setItem(VOICE_KEY, vs[+b.dataset.use].name); } catch {}
       voice = vs[+b.dataset.use];
       ui.voices();
     });
@@ -952,10 +1342,10 @@ const ui = {
       <div class="row"><span class="status" id="status" data-s="speaking"><span class="dot"></span><span id="statustext">Speaking</span></span>
         <span class="spacer"></span><button class="danger small" id="stop">Stop session</button></div>
       <div class="stage">
-        <p class="question" id="q"></p>
+        <p class="question" id="q" data-notr></p>
         <ol class="panel reqs" id="reqs" hidden></ol>
         <div class="counter" id="counter" hidden></div>
-        <p class="heard" id="heard"></p>
+        <p class="heard" id="heard" data-notr></p>
       </div>
       <div class="row" id="repctl" hidden><button id="plus">+1</button><button class="quiet" id="done">Done</button></div>
       <div class="row"><button class="mic" id="mic" aria-label="Tap to talk">${MIC}</button>
@@ -998,7 +1388,7 @@ const ui = {
   reportScreen(report, safety, id) {
     $app.innerHTML = `
       <h1>Session saved</h1>
-      ${safety ? '<div class="panel stack"><h2>Support</h2><p>If you are in crisis or thinking about hurting yourself, reach out now. In the US, call or text <b>988</b> (Suicide &amp; Crisis Lifeline). Outside the US, contact your local emergency number.</p></div>' : ""}
+      ${safety ? `<div class="panel stack"><h2>Support</h2>${T('<p>If you are in crisis or thinking about hurting yourself, reach out now. In the US, call or text <b>988</b> (Suicide &amp; Crisis Lifeline). Outside the US, contact your local emergency number.</p>')}</div>` : ""}
       <div id="notes"></div>
       <button id="back">Back to menu</button>`;
     ui.notes(document.getElementById("notes"), id, report);
@@ -1008,12 +1398,12 @@ const ui = {
   // Session notes with Edit and Save, since voice-to-text isn't perfect. onSaved gets the new text.
   notes(box, id, report, onSaved = () => {}) {
     const show = () => {
-      box.innerHTML = `<div class="stack"><div class="panel report">${esc(report || "This session didn't finish, so there is no report.")}</div>
+      box.innerHTML = `<div class="stack"><div class="panel report" data-notr>${esc(report || T("This session didn't finish, so there is no report."))}</div>
         ${id ? '<button class="quiet" id="edit">Edit notes</button>' : ""}</div>`;
       if (id) box.querySelector("#edit").onclick = edit;
     };
     const edit = () => {
-      box.innerHTML = `<div class="stack"><textarea class="panel report" id="text" aria-label="Session notes"></textarea>
+      box.innerHTML = `<div class="stack"><textarea class="panel report" id="text" aria-label="${T("Session notes")}"></textarea>
         <div class="row"><button id="save">Save</button><button class="quiet" id="cancel">Cancel</button><span class="small err" id="msg"></span></div></div>`;
       const text = box.querySelector("#text");
       text.value = report || "";
@@ -1042,7 +1432,7 @@ const ui = {
     const list = document.getElementById("list");
     if (error) { list.innerHTML = `<p class="err">Couldn't load sessions. Check your connection and try again.</p>`; return; }
     if (!data.length) { list.innerHTML = `<p class="muted">No sessions yet. Your first one will show up here.</p>`; return; }
-    list.innerHTML = data.map(s => `<button data-id="${s.id}"><b>${new Date(s.started_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</b><br><span class="muted small">${esc(modeTitle(MODES.find(m => m.id === s.mode) || { name: "" }))} · ${esc(s.outcome || "not finished")}</span></button>`).join("");
+    list.innerHTML = data.map(s => `<button data-id="${s.id}"><b>${new Date(s.started_at).toLocaleString(LOCALE, { dateStyle: "medium", timeStyle: "short" })}</b><br><span class="muted small">${esc(modeTitle(MODES.find(m => m.id === s.mode) || { name: "" }))} · ${esc(T(s.outcome || "not finished"))}</span></button>`).join("");
     list.querySelectorAll("button").forEach(b => b.onclick = () => {
       const s = data.find(x => x.id === b.dataset.id);
       if (!s) return;
