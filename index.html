@@ -83,7 +83,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-163947"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-210210"; // stamped by publish-phone-app.sh on every publish
 
 // ---------------------------------------------------------------- script lines
 const S = {
@@ -788,19 +788,29 @@ const ui = {
   async menu() {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return ui.signIn();
+    const { data: acc } = await sb.rpc("auditor_my_access");
+    if (acc && !acc.member) {
+      $app.innerHTML = `
+        <div class="stack"><h1>Processing App</h1><p class="muted">Your account (${esc(user.email)}) hasn't been activated yet. Once it's turned on, close and reopen the app.</p></div>
+        <button class="quiet" id="out">Sign out</button>`;
+      document.getElementById("out").onclick = async () => { await sb.auth.signOut(); ui.signIn(); };
+      return;
+    }
+    const locked = g => g.id === "memory" && !acc?.deep;
     $app.innerHTML = `
       <div class="row"><h1>Processing App</h1><span class="spacer"></span><button class="quiet small" id="hist">Past sessions</button></div>
       <p class="muted">Choose a style of processing.</p>
       <div class="stack">${GROUPS.map(g => `
-        <button class="mode" data-group="${g.id}"><b>${esc(g.name)}</b><span>${esc(g.desc)}</span></button>`).join("")}
+        <button class="mode" data-group="${g.id}" ${locked(g) ? "disabled" : ""}><b>${esc(g.name)}</b><span>${esc(g.desc)}</span>${locked(g) ? '<span class="soon">Not turned on for your account yet</span>' : ""}</button>`).join("")}
         <button class="quiet" id="truth">Absolute Truth, Understanding and Concepts</button></div>
       ${SR ? "" : `<p class="small err">${
         IS_IOS && IS_STANDALONE ? "Voice input doesn't work from the home screen on this iPhone. Open the app in Safari for voice, or type your answers."
         : IS_SAMSUNG_BROWSER ? "Voice input doesn't work in Samsung Internet. Open this link in Chrome for voice, or type your answers."
         : "Voice input isn't available in this browser. You can type your answers. On iPhone use Safari; on Android use Chrome."}</p>`}
       <span class="spacer"></span>
-      <div class="row small muted"><span>${esc(user.email)} · version ${esc(APP_VERSION)}</span><span class="spacer"></span><button class="quiet small" id="aibtn" hidden></button><button class="quiet small" id="voicebtn">Voice</button><button class="quiet small" id="pwchange">Change password</button><button class="quiet small" id="out">Sign out</button></div>`;
-    for (const g of GROUPS) $app.querySelector(`[data-group="${g.id}"]`).onclick = () => ui.group(g);
+      <div class="row small muted"><span>${esc(user.email)} · version ${esc(APP_VERSION)}</span><span class="spacer"></span>${acc?.is_admin ? '<button class="quiet small" id="family">Family</button>' : ""}<button class="quiet small" id="aibtn" hidden></button><button class="quiet small" id="voicebtn">Voice</button><button class="quiet small" id="pwchange">Change password</button><button class="quiet small" id="out">Sign out</button></div>`;
+    for (const g of GROUPS) if (!locked(g)) $app.querySelector(`[data-group="${g.id}"]`).onclick = () => ui.group(g);
+    if (acc?.is_admin) document.getElementById("family").onclick = () => ui.family();
     document.getElementById("hist").onclick = () => ui.history();
     document.getElementById("out").onclick = async () => { await sb.auth.signOut(); ui.signIn(); };
     document.getElementById("pwchange").onclick = () => ui.changePassword();
@@ -825,6 +835,48 @@ const ui = {
       btn.disabled = false;
       label();
     };
+  },
+
+  async family(msg = "") {
+    $app.innerHTML = `
+      <div class="row"><h1>Family</h1><span class="spacer"></span><button class="quiet small" id="back">Back</button></div>
+      <p class="muted">New people get Light Processing only. Turn on Deep when they're ready. After you add someone, they tap "First time? Create an account" on the sign-in screen with that same email.</p>
+      <div class="panel stack">
+        <input id="newemail" type="email" autocomplete="off" placeholder="Their email address" aria-label="Email to add">
+        <div class="row"><button id="add">Add person</button><span class="small ${msg.startsWith("!") ? "err" : "muted"}" id="msg">${esc(msg.replace(/^!/, ""))}</span></div>
+      </div>
+      <div class="stack" id="people"><p class="muted">Loading...</p></div>`;
+    document.getElementById("back").onclick = () => ui.menu();
+    document.getElementById("add").onclick = async () => {
+      const email = document.getElementById("newemail").value.trim().toLowerCase();
+      if (!email) return;
+      const { error } = await sb.rpc("auditor_family_set", { p_email: email, p_deep: false });
+      ui.family(error ? "!Couldn't add that email. Check it and try again." : `Added ${email} with Light Processing.`);
+    };
+    const { data, error } = await sb.rpc("auditor_family_list");
+    const box = document.getElementById("people");
+    if (error) { box.innerHTML = `<p class="err">Couldn't load the family list. Check your connection.</p>`; return; }
+    box.innerHTML = data.map((f, i) => `
+      <div class="panel stack" style="padding:12px">
+        <div><b>${esc(f.email)}</b><br><span class="small muted">${f.is_admin ? "Admin" : f.has_account ? "Has an account" : "Hasn't created an account yet"}</span></div>
+        ${f.is_admin ? '<span class="small muted">Light and Deep</span>' : `
+        <div class="row"><span class="small">Deep Processing: <b>${f.deep_enabled ? "on" : "off"}</b></span><span class="spacer"></span>
+          <button class="small ${f.deep_enabled ? "quiet" : ""}" data-deep="${i}">${f.deep_enabled ? "Turn Deep off" : "Turn Deep on"}</button>
+          <button class="small danger" data-remove="${i}">Remove</button></div>`}
+      </div>`).join("");
+    box.querySelectorAll("[data-deep]").forEach(b => b.onclick = async () => {
+      const f = data[+b.dataset.deep];
+      b.disabled = true;
+      const { error } = await sb.rpc("auditor_family_set", { p_email: f.email, p_deep: !f.deep_enabled });
+      ui.family(error ? "!Couldn't change that. Try again." : `Deep Processing is ${f.deep_enabled ? "off" : "on"} for ${f.email}.`);
+    });
+    // Two taps to remove, so one stray tap can't lock someone out.
+    box.querySelectorAll("[data-remove]").forEach(b => b.onclick = async () => {
+      if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Tap again to remove"; return; }
+      const f = data[+b.dataset.remove];
+      const { error } = await sb.rpc("auditor_family_remove", { p_email: f.email });
+      ui.family(error ? "!Couldn't remove that person. Try again." : `Removed ${f.email}. Their past sessions are kept.`);
+    });
   },
 
   truth() {
