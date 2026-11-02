@@ -47,6 +47,14 @@ person's experience means, never give advice, diagnosis, or medical or psycholog
 answer should be. If the question is outside the process, say kindly that it's outside what this session covers. If they
 asked to repeat, reply "Of course." Don't ask a question; the app repeats its own question after you. Never mention being an AI.${inSpanish(p)}`;
 
+// The communication cycle: the app only moves on once the question has actually been answered.
+const ANSWERED = `answered: true if the reply responds to the question asked in any way, including "I don't know", "nothing",
+"I'm not sure", a single word, or a vague, unusual or imaginative answer (in this process a smell can be "like rain on metal"
+and a feeling can be a person or an animal; those are answers). false only when the reply clearly doesn't address the
+question at all, for example they start talking about something unrelated. When unsure, answered is true.
+Examples for "What is the temperature?": "It's 90 degrees" answered; "I don't know" answered; they start talking about
+airplanes they saw last week, not answered.`;
+
 // The app can run in Spanish; then everything the person hears or reads comes back in Spanish.
 function inSpanish(p: any) {
   return p.lang === "es"
@@ -61,9 +69,11 @@ const TASKS: Record<string, (p: any) => { prompt: string; maxTokens: number; jso
     maxTokens: 300,
     prompt: `${questionCheck(p)}
 
-Otherwise set is_question false and write ack: at most 10 words acknowledging by echoing their own words,
-e.g. "Okay, a heavy gray stone." No question, no advice. Empty string if the answer is blank or unclear.
-Reply with only JSON: {"is_question": boolean, "reply": string, "ack": string, "distress": boolean}
+Otherwise set is_question false and decide answered.
+${ANSWERED}
+If answered, write ack: at most 10 words acknowledging by echoing their own words,
+e.g. "Okay, a heavy gray stone." No question, no advice. Empty string if the answer is blank or unclear, or not answered.
+Reply with only JSON: {"is_question": boolean, "answered": boolean, "reply": string, "ack": string, "distress": boolean}
 - distress: true only if the reply expresses intent to harm themselves or others, or a crisis.`,
   }),
   // Pull a 0-10 number or a yes/no out of an answer the app's own parser couldn't read, unless it was a question.
@@ -72,11 +82,12 @@ Reply with only JSON: {"is_question": boolean, "reply": string, "ack": string, "
     maxTokens: 300,
     prompt: `${questionCheck(p)}
 
-Otherwise set is_question false and read the value from their reply.
+Otherwise set is_question false, decide answered, and read the value from their reply.
+${ANSWERED}
 ${p.kind === "number"
   ? 'value: an integer 0-10, or null if no intensity was given. "Gone", "nothing", "it disappeared" mean 0.'
   : "value: true for yes, false for no, null if unclear."}
-Reply with only JSON: {"is_question": boolean, "reply": string, "value": ${p.kind === "number" ? "number|null" : "boolean|null"}, "distress": boolean}
+Reply with only JSON: {"is_question": boolean, "answered": boolean, "reply": string, "value": ${p.kind === "number" ? "number|null" : "boolean|null"}, "distress": boolean}
 - distress: true only if the reply expresses intent to harm themselves or others, or a crisis.`,
   }),
   // A reply that looks like a question, on a step with no echo-back.

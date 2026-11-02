@@ -84,7 +84,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-213431"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-214600"; // stamped by publish-phone-app.sh on every publish
 
 // English or Spanish, chosen per phone. Changing it reloads the app.
 const LANG = (() => { try { return localStorage.getItem("lang") === "es" ? "es" : "en"; } catch { return "en"; } })();
@@ -141,6 +141,7 @@ const S = {
   DISTRESS: "Let's pause here. If you are in crisis or thinking about hurting yourself, please reach out for help right now. In the US, call or text 988.",
   REPEAT_Q: "Sorry, I didn't catch that.",
   CONTINUE: "Let's continue.",
+  UNDERSTAND: "I understand.", // before asking again when the reply didn't answer the question
 };
 const S_BASE = { ...S }; // each session starts from these lines, then applies its mode's wording
 // Extra perceptics. Each cycle asks a few of these, picked to fit what the person has described.
@@ -321,6 +322,7 @@ const ES = {
     DISTRESS: "Hagamos una pausa aquí. Si estás en crisis o pensando en hacerte daño, por favor busca ayuda ahora mismo. En Estados Unidos, llama o envía un mensaje de texto al 988; hay atención en español.",
     REPEAT_Q: "Perdón, no te entendí.",
     CONTINUE: "Continuemos.",
+    UNDERSTAND: "Entiendo.",
   },
   EXTRA: {
     temperature: "¿Qué temperatura tiene?",
@@ -845,6 +847,12 @@ async function ask(line, { reflect = false, questions = true, lead = "", skip = 
       spoken = `${r.reply.slice(0, 600)} ${S.CONTINUE} ${line}`;
       continue;
     }
+    // Complete the communication cycle: a reply that didn't answer the question gets "I understand" and the question again.
+    if (canAnswer && reflect && r && r.answered === false) {
+      session.transcript.push({ q: "(didn't answer the question)", a: answer });
+      spoken = `${S.UNDERSTAND} ${line}`;
+      continue;
+    }
     if (reflect && r && typeof r.ack === "string") session.ack = r.ack.slice(0, 120);
     return answer;
   }
@@ -859,7 +867,7 @@ async function askParsed(line, parse, kind, skipValue) {
     const answer = await ask(line, { lead, skip: skipValue !== undefined });
     if (answer === SKIPPED) return skipValue;
     lead = "";
-    let v = parse(answer);
+    let v = parse(answer), offTopic = false;
     if (v === null && answer && session.aiOn) {
       ui.status("thinking");
       const r = await ai("classify", { ...qaPayload(line, answer), kind }, 12000);
@@ -872,8 +880,10 @@ async function askParsed(line, parse, kind, skipValue) {
       }
       if (r && r.value !== null && r.value !== undefined) v = kind === "number" ? Math.max(0, Math.min(10, Math.round(+r.value))) : !!r.value;
       if (Number.isNaN(v)) v = null;
+      offTopic = v === null && r && r.answered === false;
     }
     if (v !== null) return v;
+    if (offTopic && questions++ < MAX_QUESTIONS) { lead = S.UNDERSTAND; tries--; continue; } // didn't answer: doesn't use up a try
     lead = S.REPEAT_Q;
   }
   return kind === "number" ? 5 : true; // keep going rather than trap the person
