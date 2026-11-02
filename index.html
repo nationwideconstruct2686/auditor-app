@@ -65,6 +65,7 @@ label { font-weight: 700; font-size: 14px; }
 .counter small { font-size: 24px; color: var(--muted); }
 .mic { width: 84px; height: 84px; border-radius: 50%; padding: 0; display: grid; place-items: center; }
 .mic svg { width: 34px; height: 34px; }
+.mic.off { background: transparent; color: var(--warn); border: 2px solid var(--warn); }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
 textarea.report { width: 100%; min-height: 60vh; resize: vertical; color: var(--fg); font-size: 16px; } /* 16px stops iPhone zooming in */
 .report { white-space: pre-wrap; font-size: 15px; word-break: break-word; overflow-wrap: anywhere; }
@@ -83,7 +84,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-212652"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-213431"; // stamped by publish-phone-app.sh on every publish
 
 // English or Spanish, chosen per phone. Changing it reloads the app.
 const LANG = (() => { try { return localStorage.getItem("lang") === "es" ? "es" : "en"; } catch { return "en"; } })();
@@ -493,7 +494,10 @@ const UI_ES = {
   "The two passwords don't match. Try again.": "Las dos contraseñas no coinciden. Inténtalo de nuevo.",
   "Saved. Use your new password next time you sign in.": "Guardada. Usa tu contraseña nueva la próxima vez que inicies sesión.",
   "Speaking": "Hablando", "Listening": "Escuchando", "One moment": "Un momento", "Tap the mic or type": "Toca el micrófono o escribe",
-  "Stop session": "Detener sesión", "Done": "Listo", "Or type your answer": "O escribe tu respuesta", "Send": "Enviar", "Tap to talk": "Toca para hablar",
+  "Stop session": "Detener sesión", "Previous question": "Pregunta anterior", "Skip": "Saltar", "(skipped)": "(omitida)",
+  "Mic off. Tap the mic to turn it on, or type": "Micrófono apagado. Tócalo para encenderlo, o escribe",
+  "Microphone off. Tap to turn it on": "Micrófono apagado. Toca para encenderlo",
+  "Microphone on. Tap to turn it off": "Micrófono encendido. Toca para apagarlo", "Done": "Listo", "Or type your answer": "O escribe tu respuesta", "Send": "Enviar", "Tap to talk": "Toca para hablar",
   "Voice input doesn't work in Samsung Internet. Type your answers, or open the app in Chrome for voice.": "La entrada de voz no funciona en Samsung Internet. Escribe tus respuestas o abre la app en Chrome para usar la voz.",
   "Tap the mic to talk, or type your answer. If tapping doesn't help, allow the microphone in your phone's settings.": "Toca el micrófono para hablar o escribe tu respuesta. Si no funciona, permite el micrófono en los ajustes de tu teléfono.",
   "Say it ten times:\n“{0}”": "Dilo diez veces:\n“{0}”",
@@ -579,6 +583,8 @@ const isDistress = t => /(kill myself|suicide|hurt myself|end my life|want to di
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 // Set when the phone refuses the microphone or speech service; the session carries on by typing.
 let srBlocked = false;
+// The person's own mic switch: on when a session starts, off after they tap it, until they tap it again.
+let micOff = false;
 function srError(e) {
   if (!/not-allowed|service-not-allowed/.test(e.error)) return;
   srBlocked = true; // until the next tap on the mic, which counts as permission on iPhone
@@ -629,7 +635,9 @@ function unlockSpeech() {
 }
 
 async function say(text) {
-  ui.question(text); ui.status("speaking");
+  ui.question(text);
+  if (replaying()) return;
+  ui.status("speaking");
   if (!("speechSynthesis" in window)) return;
   if (!voice) pickVoice(); // iPhone loads voices late and may never fire onvoiceschanged
   // Let the microphone fully release first, or iPhone plays speech quietly through the earpiece.
@@ -650,11 +658,46 @@ async function say(text) {
 }
 
 class Stopped extends Error {}
+// Previous question: the session is rebuilt by silently replaying everything logged before that question,
+// then the question is asked again live, so the new answer replaces the old one everywhere.
+class Rewind extends Error { constructor(replay) { super("rewind"); this.replay = replay; } }
+const MISS = Symbol("miss");
+const replaying = () => !!session && session.pos < session.replay.length;
+function record(kind, value, auto = false, q = null) { session.log.push({ kind, value, auto, q }); return value; }
+function replayNext(kind) {
+  const e = session.replay[session.pos];
+  if (e.kind !== kind) { session.replay.length = session.pos; return MISS; } // out of step: carry on live
+  session.pos++;
+  return record(kind, e.value, e.auto, e.q);
+}
+// The log up to the answer of the question before the one being asked now (skipping repeats of the same question).
+function backTarget() {
+  const L = session.log, isQ = e => e.kind === "answer" && !e.auto;
+  let i = L.length - 1;
+  while (i >= 0 && (!isQ(L[i]) || L[i].q === session.asking)) i--;
+  if (i < 0) return null;
+  const q = L[i].q;
+  for (let j = i - 1; j >= 0; j--) { if (!isQ(L[j])) continue; if (L[j].q !== q) break; i = j; }
+  return L.slice(0, i);
+}
+async function getAnswer(opts = {}) {
+  const q = session.asking;
+  let v = replaying() ? replayNext("answer") : MISS;
+  if (v === MISS) v = record("answer", await listenForAnswer(opts), !!opts.autoContinueMs, q);
+  session.asking = null;
+  return v;
+}
+// What a skipped question's answer reads as in the notes.
+const SKIPPED = T("(skipped)");
+async function countTen(phrase) {
+  if (replaying()) { const v = replayNext("count"); if (v !== MISS) return v; }
+  return record("count", await listenCountTen(phrase));
+}
 class Distress extends Error {}
 let session = null; // the running session; null when none
 
 // Waits for one answer: spoken, typed, or (for the cancel step) a timeout.
-function getAnswer({ autoContinueMs = 0 } = {}) {
+function listenForAnswer({ autoContinueMs = 0 } = {}) {
   return new Promise((resolve, reject) => {
     let rec = null, settled = false, restarts = 0, timer = null;
     const finish = (text) => {
@@ -664,11 +707,15 @@ function getAnswer({ autoContinueMs = 0 } = {}) {
       ui.listening(false);
       resolve(text.trim());
     };
-    session.pending = { submit: finish, cancel: () => { settled = true; try { rec && rec.abort(); } catch {} reject(new Stopped()); },
+    const quit = err => { settled = true; clearTimeout(timer); try { rec && rec.abort(); } catch {} session.pending = null; ui.listening(false); reject(err); };
+    session.pending = { submit: finish, cancel: () => quit(new Stopped()),
+                        skip: () => { if (!session.noSkip) finish(autoContinueMs ? "" : SKIPPED); },
+                        back: () => { const replay = backTarget(); if (replay) quit(new Rewind(replay)); },
+                        mute: () => { const old = rec; rec = null; try { old && old.abort(); } catch {} ui.status("micoff"); ui.listening(false); },
                         listen: () => { srBlocked = false; restarts = 0; start(); } };
     if (autoContinueMs) timer = setTimeout(() => finish(""), autoContinueMs);
     function start() {
-      if (!SR || srBlocked || settled) { ui.status("waiting"); ui.listening(false); return; }
+      if (!SR || srBlocked || micOff || settled) { ui.status(micOff ? "micoff" : "waiting"); ui.listening(false); return; }
       const old = rec; rec = null;
       try { old && old.abort(); } catch {}
       const me = rec = new SR(); me.lang = SR_LANG; me.interimResults = true; me.continuous = false;
@@ -703,7 +750,7 @@ function joinResults(results) {
 }
 
 // Counts ten repetitions from speech, with +1 and Done buttons as backup.
-function countTen(phrase) {
+function listenCountTen(phrase) {
   return new Promise((resolve, reject) => {
     let base = 0, count = 0, rec = null, settled = false;
     const show = () => ui.counter(Math.min(count, 10));
@@ -716,13 +763,16 @@ function countTen(phrase) {
     const bump = (n) => { count = n; show(); if (count >= 10) setTimeout(finish, 600); };
     session.pending = {
       plusOne: () => { base += 1; bump(count + 1); },
-      done: finish,
-      cancel: () => { settled = true; try { rec && rec.abort(); } catch {} ui.counter(null); reject(new Stopped()); },
+      done: finish, skip: finish,
+      cancel: () => quit(new Stopped()),
+      back: () => { const replay = backTarget(); if (replay) quit(new Rewind(replay)); },
+      mute: () => { const old = rec; rec = null; try { old && old.abort(); } catch {} ui.status("micoff"); ui.listening(false); },
       listen: () => { srBlocked = false; start(); },
     };
+    const quit = err => { settled = true; try { rec && rec.abort(); } catch {} session.pending = null; ui.counter(null); ui.listening(false); reject(err); };
     show();
     function start() {
-      if (!SR || srBlocked || settled) { ui.listening(false); return; }
+      if (!SR || srBlocked || micOff || settled) { if (micOff) ui.status("micoff"); ui.listening(false); return; }
       const old = rec; rec = null;
       try { old && old.abort(); } catch {}
       const me = rec = new SR(); me.lang = SR_LANG; me.interimResults = true; me.continuous = true;
@@ -746,6 +796,10 @@ function countTen(phrase) {
 // ---------------------------------------------------------------- AI (light touch)
 async function ai(task, payload, timeoutMs) {
   if (!session?.aiOn) return null; // switched off: the scripted fallbacks take over
+  if (replaying()) { const v = replayNext("ai"); if (v !== MISS) return v; }
+  return record("ai", await callAi(task, payload, timeoutMs));
+}
+async function callAi(task, payload, timeoutMs) {
   try {
     const call = sb.functions.invoke("auditor-ai", { body: { task, payload } });
     const res = await (timeoutMs ? Promise.race([call, new Promise(r => setTimeout(() => r(null), timeoutMs))]) : call);
@@ -764,14 +818,18 @@ const MAX_QUESTIONS = 3; // per app question, so a misheard answer can't loop fo
 // the AI answers it fully, then the same question is asked again before moving on.
 // lead: spoken before the question. questions: false where the answer itself may sound like a question
 // (a counter-intention like "why me?").
-async function ask(line, { reflect = false, questions = true, lead = "" } = {}) {
+async function ask(line, { reflect = false, questions = true, lead = "", skip = true } = {}) {
   let spoken = [session.ack, lead, line].filter(Boolean).join(" ");
   session.ack = "";
   for (let asked = 0; ; asked++) {
     await say(spoken);
     ui.question(line);
+    session.asking = line;
+    session.noSkip = !skip; ui.skipEnabled(skip);
     const answer = await getAnswer();
+    session.noSkip = false; ui.skipEnabled(true);
     session.transcript.push({ q: line, a: answer });
+    if (answer === SKIPPED) return answer;
     if (isStop(answer)) throw new Stopped();
     if (isDistress(answer)) throw new Distress();
     if (!answer || !session.aiOn) return answer;
@@ -794,10 +852,12 @@ async function ask(line, { reflect = false, questions = true, lead = "" } = {}) 
 
 // Asks until it gets a number or a yes/no. A question from the person gets answered, then the same
 // question is asked again; it doesn't count as one of the three tries.
-async function askParsed(line, parse, kind) {
+// skipValue: what Skip counts as; without one the question can't be skipped.
+async function askParsed(line, parse, kind, skipValue) {
   let lead = "", questions = 0;
   for (let tries = 0; tries < 3; tries++) {
-    const answer = await ask(line, { lead });
+    const answer = await ask(line, { lead, skip: skipValue !== undefined });
+    if (answer === SKIPPED) return skipValue;
     lead = "";
     let v = parse(answer);
     if (v === null && answer && session.aiOn) {
@@ -910,11 +970,11 @@ async function runMemoryItem() {
 
 // Counter-intention 10x, cancel cancel, then the replacement 10x. Fills in counter/negCount/seed/posCount.
 async function neutralize(rec) {
-  rec.counter = cleanPhrase(await ask(S.VOICE, { questions: false }));
+  rec.counter = cleanPhrase(await ask(S.VOICE, { questions: false, skip: false }));
   rec.negCount = await repeatTen(S.REPEAT_NEG, rec.counter);
   await say(S.CANCEL);
   await getAnswer({ autoContinueMs: 7000 });
-  rec.seed = cleanPhrase(await ask(S.REPLACE, { questions: false }));
+  rec.seed = cleanPhrase(await ask(S.REPLACE, { questions: false, skip: false }));
   rec.posCount = await repeatTen(S.REPEAT_POS, rec.seed);
 }
 
@@ -937,14 +997,15 @@ async function pickExtras(item, cyc) {
 // Returns true when the person is ready to start.
 async function runChecklist() {
   ui.requirements(REQUIREMENTS);
-  let reviewed = false;
+  let reviewed = false, skipped = false;
   while (!reviewed) {
     const answer = await ask(S.REVIEW);
-    reviewed = parseYesNo(answer) === true;
+    skipped = answer === SKIPPED;
+    reviewed = skipped || parseYesNo(answer) === true;
     if (!reviewed) await say(S.REVIEW_WAIT);
   }
   ui.requirements(null);
-  const ready = await askParsed(S.READY, parseYesNo, "yesno");
+  const ready = skipped || await askParsed(S.READY, parseYesNo, "yesno", true);
   session.checklist.push({ key: "requirements reviewed", answer: "yes", ok: true });
   session.checklist.push({ key: "ready to begin", answer: ready ? "yes" : "no", ok: ready });
   if (!ready) { await say(S.NOT_READY); session.outcome = "not ready"; return false; }
@@ -953,7 +1014,7 @@ async function runChecklist() {
 
 async function openSession() {
   session.opened = true;
-  for (const line of S.OPENING) { await say(line); await wait(600); }
+  for (const line of S.OPENING) { await say(line); if (!replaying()) await wait(600); }
 }
 async function closeSession() {
   for (const line of S.CLOSING) { await say(line); await wait(700); }
@@ -961,30 +1022,37 @@ async function closeSession() {
 
 async function runSession(mode) {
   Object.assign(S, S_BASE, mode.lines);
-  session = { mode, id: null, started: new Date(), items: [], memories: [], drawn: [], outcome: "completed", ack: "", pending: null,
-              transcript: [], checklist: [], usage: { input: 0, output: 0, calls: 0 } };
+  micOff = false;
+  session = { mode, id: null, started: new Date(), pending: null, replay: [], usage: { input: 0, output: 0, calls: 0 } };
   ui.sessionScreen();
   try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
   const { data: st } = await sb.from("auditor_settings").select("ai_enabled").eq("id", 1).maybeSingle();
   session.aiOn = st?.ai_enabled !== false;
   const { data } = await sb.from("auditor_sessions").insert({ mode: mode.id }).select("id").single();
   session.id = data?.id ?? null;
-  try {
-    if (await runChecklist()) {
-      await openSession();
-      if (!(await askParsed(S.START, parseYesNo, "yesno")) && !(await drawUp(mode.draw))) { session.outcome = "no charge present"; await say(S.NONE_START); }
-      else {
-        while (true) {
-          await (mode.item === "memory" ? runMemoryItem() : mode.item === "experience" ? runExperienceItem() : runItem());
-          if (!(await askParsed(S.ITEM_DONE, parseYesNo, "yesno"))) break;
+  for (;;) {
+    // Fresh session data each run; after Previous question, the replay fills it back in up to that question.
+    Object.assign(session, { items: [], memories: [], drawn: [], transcript: [], checklist: [], outcome: "completed",
+                             ack: "", opened: false, asking: null, backRequested: false, log: [], pos: 0 });
+    try {
+      if (await runChecklist()) {
+        await openSession();
+        if (!(await askParsed(S.START, parseYesNo, "yesno")) && !(await drawUp(mode.draw))) { session.outcome = "no charge present"; await say(S.NONE_START); }
+        else {
+          while (true) {
+            await (mode.item === "memory" ? runMemoryItem() : mode.item === "experience" ? runExperienceItem() : runItem());
+            if (!(await askParsed(S.ITEM_DONE, parseYesNo, "yesno"))) break;
+          }
+          await say(S.END);
         }
-        await say(S.END);
       }
+    } catch (e) {
+      if (e instanceof Rewind) { speechSynthesis.cancel(); ui.requirements(null); session.replay = e.replay; continue; }
+      if (e instanceof Distress) session.outcome = "paused for safety";
+      else if (e instanceof Stopped) { session.outcome = "stopped by user"; speechSynthesis.cancel(); }
+      else { session.outcome = "ended by an error"; console.error(e); }
     }
-  } catch (e) {
-    if (e instanceof Distress) session.outcome = "paused for safety";
-    else if (e instanceof Stopped) { session.outcome = "stopped by user"; speechSynthesis.cancel(); }
-    else { session.outcome = "ended by an error"; console.error(e); }
+    break;
   }
   // Whatever ended the session, count the person out of it before anything else.
   if (session.opened) { try { await closeSession(); } catch {} }
@@ -1004,7 +1072,7 @@ function logData() {
   return { mode: session.mode.id, checklist: session.checklist, items: session.items, memories: session.memories, drawn: session.drawn, usage: session.usage, started: session.started.toISOString() };
 }
 async function saveProgress() {
-  if (session?.id) sb.from("auditor_sessions").update({ log: logData() }).eq("id", session.id).then(() => {});
+  if (session?.id && !replaying()) sb.from("auditor_sessions").update({ log: logData() }).eq("id", session.id).then(() => {});
 }
 
 function buildReport(summary) {
@@ -1129,6 +1197,7 @@ Antes de cada sesión, busca un lugar tranquilo donde nadie te interrumpa y lee 
 };
 const LANG_BTN = `<button class="quiet small" id="langbtn">${LANG === "es" ? "English" : "Español"}</button>`;
 const bindLang = () => { document.getElementById("langbtn").onclick = () => setLang(LANG === "es" ? "en" : "es"); };
+const MIC_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M3 3l18 18"/></svg>';
 const MIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
 
 const ui = {
@@ -1340,7 +1409,7 @@ const ui = {
   sessionScreen() {
     $app.innerHTML = `
       <div class="row"><span class="status" id="status" data-s="speaking"><span class="dot"></span><span id="statustext">Speaking</span></span>
-        <span class="spacer"></span><button class="danger small" id="stop">Stop session</button></div>
+        <span class="spacer"></span><button class="quiet small" id="backq">Previous question</button><button class="quiet small" id="skipq">Skip</button><button class="danger small" id="stop">Stop session</button></div>
       <div class="stage">
         <p class="question" id="q" data-notr></p>
         <ol class="panel reqs" id="reqs" hidden></ol>
@@ -1348,13 +1417,28 @@ const ui = {
         <p class="heard" id="heard" data-notr></p>
       </div>
       <div class="row" id="repctl" hidden><button id="plus">+1</button><button class="quiet" id="done">Done</button></div>
-      <div class="row"><button class="mic" id="mic" aria-label="Tap to talk">${MIC}</button>
+      <div class="row"><button class="mic" id="mic">${MIC}</button>
         <form id="typed" class="row" style="flex:1;min-width:0;flex-wrap:nowrap"><input id="typedin" placeholder="Or type your answer" autocomplete="off" style="min-width:0"><button type="submit">Send</button></form></div>`;
     document.getElementById("stop").onclick = () => { speechSynthesis.cancel(); session?.pending?.cancel?.(); if (session && !session.pending) session.stopRequested = true; };
-    document.getElementById("mic").onclick = () => {
-      if (session?.pending?.listen) session.pending.listen();
-      else if (speechSynthesis.speaking) speechSynthesis.cancel(); // skip ahead; listening starts next
+    // Skip: cut the speaking short, or move past the step that's waiting (not ones that need an answer).
+    document.getElementById("skipq").onclick = () => {
+      if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+      else session?.pending?.skip?.();
     };
+    document.getElementById("backq").onclick = () => {
+      if (!session) return;
+      speechSynthesis.cancel();
+      if (session.pending?.back) session.pending.back();
+      else session.backRequested = true; // taken up as soon as the next question is waiting
+    };
+    // The mic is a switch: tap to turn it off, tap again to turn it back on. It stays the way it was left.
+    document.getElementById("mic").onclick = () => {
+      micOff = !micOff;
+      ui.micSwitch();
+      if (micOff) session?.pending?.mute?.();
+      else { srBlocked = false; session?.pending?.listen?.(); }
+    };
+    ui.micSwitch();
     document.getElementById("plus").onclick = () => session?.pending?.plusOne?.();
     document.getElementById("done").onclick = () => session?.pending?.done?.();
     document.getElementById("typed").onsubmit = e => {
@@ -1368,8 +1452,9 @@ const ui = {
   status(s) {
     const el = document.getElementById("status"); if (!el) return;
     el.dataset.s = s;
-    document.getElementById("statustext").textContent = { speaking: "Speaking", listening: "Listening", thinking: "One moment", waiting: "Tap the mic or type" }[s] || s;
+    document.getElementById("statustext").textContent = T({ speaking: "Speaking", listening: "Listening", thinking: "One moment", waiting: "Tap the mic or type", micoff: "Mic off. Tap the mic to turn it on, or type" }[s] || s);
     if (session?.stopRequested && s !== "speaking") { session.stopRequested = false; session.pending?.cancel?.(); }
+    if (session?.backRequested && s !== "speaking" && session.pending?.back) { session.backRequested = false; session.pending.back(); }
   },
   question(t) { const el = document.getElementById("q"); if (el) { el.textContent = t; el.style.whiteSpace = "pre-line"; } ui.heard(""); },
   requirements(list) {
@@ -1379,6 +1464,13 @@ const ui = {
   },
   heard(t) { const el = document.getElementById("heard"); if (el) el.textContent = t; },
   listening(on) { const m = document.getElementById("mic"); if (m) m.classList.toggle("quiet", !on); },
+  skipEnabled(on) { const b = document.getElementById("skipq"); if (b) b.disabled = !on; },
+  micSwitch() {
+    const m = document.getElementById("mic"); if (!m) return;
+    m.innerHTML = micOff ? MIC_OFF : MIC;
+    m.classList.toggle("off", micOff);
+    m.setAttribute("aria-label", T(micOff ? "Microphone off. Tap to turn it on" : "Microphone on. Tap to turn it off"));
+  },
   counter(n) {
     const c = document.getElementById("counter"), ctl = document.getElementById("repctl"); if (!c) return;
     c.hidden = ctl.hidden = n === null;
