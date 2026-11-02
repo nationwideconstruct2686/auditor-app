@@ -84,7 +84,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-214600"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261102-100243"; // stamped by publish-phone-app.sh on every publish
 
 // English or Spanish, chosen per phone. Changing it reloads the app.
 const LANG = (() => { try { return localStorage.getItem("lang") === "es" ? "es" : "en"; } catch { return "en"; } })();
@@ -215,6 +215,20 @@ const FEELING = { noun: "Limiting feelings", name_q: "Describe the feeling you'r
 const DRAW_MORE = "Tell me more about it. What was happening?";
 // Experience processing: a recent suboptimal experience with no somatic, emotion or feeling attached.
 // Every question is about the percepts of that experience; the counter-intention is the limiting thought.
+// Negative thought processing: voice the thought, say it 10 times, cancel, replace, say that 10 times,
+// and go again until there are no more. Kept very light: a short opening and no perceptics.
+const THOUGHT = {
+  THINK: "Think of a negative thought that you thought of today or in the recent past.",
+  WHAT: "What is the negative thought?",
+  VOICE: "Voice the negative thought.",
+  THANKS: "Thank you.",
+  REPEAT_NEG: "Say it 10 times: ",
+  CANCEL: "Say: cancel, cancel.",
+  REPLACE_FIRST: "What would you like to replace this with?",
+  REPLACE: "What do you want to replace it with?",
+  REPEAT_POS: "Repeat that 10 times: ",
+  ANOTHER: "Is there another negative thought that you'd like to process right now?",
+};
 const EXP = {
   WHAT: "What was the experience? Describe it briefly.",
   IDEAL: "What would the ideal outcome be?",
@@ -242,6 +256,9 @@ const MODES = [
     lines: { START: "Do you have a recent experience you want to optimize?",
              VOICE: "What is the limiting thought which is acting as a counter-intention to a more optimal experience?",
              ITEM_DONE: "That experience is optimized. Is there any other experience you want to optimize?" } },
+  { id: "negative_thought", group: "light", name: "Negative Thought Processing", ready: true, item: "thought", noun: "Negative thoughts",
+    desc: "Voice a negative thought from today or the recent past, say it 10 times, cancel it, and replace it with a statement you say 10 times.",
+    lines: { OPENING: ["We're going to start the session now.", "Close your eyes."] } },
   { id: "somatic_memory", group: "memory", name: "Somatic Processing with Memory Retrieval", desc: "Draws up a somatic, reduces it, processes any memory that comes up, neutralizes the counter-intentions and replaces them with absolute truths.", ready: true,
     memory: true, noun: "Somatics",
     draw: { DESCRIBE: "Describe a time you had a pain or discomfort in your body. What was the situation?", MORE: DRAW_MORE,
@@ -359,6 +376,18 @@ const ES = {
     AGAIN: "Bien. Vuelve al comienzo del recuerdo.",
     BACK: "Bien. Vuelve a la sensación.",
   },
+  THOUGHT: {
+    THINK: "Piensa en un pensamiento negativo que hayas tenido hoy o en los últimos días.",
+    WHAT: "¿Cuál es el pensamiento negativo?",
+    VOICE: "Expresa el pensamiento negativo.",
+    THANKS: "Gracias.",
+    REPEAT_NEG: "Dilo 10 veces: ",
+    CANCEL: "Di: cancelar, cancelar.",
+    REPLACE_FIRST: "¿Con qué te gustaría reemplazarlo?",
+    REPLACE: "¿Con qué quieres reemplazarlo?",
+    REPEAT_POS: "Repite eso 10 veces: ",
+    ANOTHER: "¿Hay otro pensamiento negativo que quieras procesar ahora mismo?",
+  },
   EXP: {
     WHAT: "¿Cuál fue la experiencia? Descríbela brevemente.",
     IDEAL: "¿Cuál sería el resultado ideal?",
@@ -411,6 +440,9 @@ const ES = {
         lines: { START: "¿Hay algún recuerdo que quieras procesar?", ITEM_DONE: "Ese recuerdo ya está descargado. ¿Hay algún otro recuerdo que quieras procesar?" },
         draw: { DESCRIBE: "Describe una situación de tu pasado que todavía te moleste.", MORE: more,
                 HAVE: "¿Hay ahí un recuerdo que quieras procesar ahora?" } },
+      negative_thought: { name: "Procesamiento de Pensamientos Negativos", noun: "Pensamientos negativos",
+        desc: "Expresa un pensamiento negativo de hoy o de los últimos días, dilo 10 veces, cancélalo y reemplázalo con una afirmación que dices 10 veces.",
+        lines: { OPENING: ["Vamos a comenzar la sesión ahora.", "Cierra los ojos."] } },
       experience: { name: "Procesamiento de Experiencias", noun: "Experiencias",
         desc: "Procesa una experiencia reciente que quieras optimizar y que no tenga somáticos, emociones negativas ni sentimientos limitantes distinguibles.",
         lines: { START: "¿Tienes alguna experiencia reciente que quieras optimizar?",
@@ -448,7 +480,7 @@ const ES = {
 const keyLabel = k => (LANG === "es" && ES.KEYS[k]) || k;
 if (LANG === "es") {
   Object.assign(S, ES.S); Object.assign(S_BASE, ES.S);
-  Object.assign(EXTRA, ES.EXTRA); Object.assign(MEM, ES.MEM); Object.assign(EXP, ES.EXP);
+  Object.assign(EXTRA, ES.EXTRA); Object.assign(MEM, ES.MEM); Object.assign(EXP, ES.EXP); Object.assign(THOUGHT, ES.THOUGHT);
   REQUIREMENTS.splice(0, REQUIREMENTS.length, ...ES.REQUIREMENTS);
   for (const g of GROUPS) Object.assign(g, ES.GROUPS[g.id]);
   for (const m of MODES) Object.assign(m, ES.MODES[m.id]);
@@ -528,7 +560,7 @@ const UI_ES = {
   "Counter-intention: \"{0}\" (said {1}x, canceled)": "Contraintención: \"{0}\" (dicha {1} veces, cancelada)",
   "Seed: \"{0}\" (said {1}x)": "Semilla: \"{0}\" (dicha {1} veces)", "Intensity after: {0}": "Intensidad después: {0}",
   "RESULT": "RESULTADO", "Ideal outcome: {0}": "Resultado ideal: {0}", "Optimal now: {0}": "Óptimo ahora: {0}",
-  "{0} optimized: {1} of {2}.": "{0}: se optimizaron {1} de {2}.", "Still open: {0}": "Sigue abierto: {0}", "Memories discharged: {0} of {1}.": "Recuerdos descargados: {0} de {1}.",
+  "{0} optimized: {1} of {2}.": "{0}: se optimizaron {1} de {2}.", "Still open: {0}": "Sigue abierto: {0}", "{0} canceled: {1}.": "{0} cancelados: {1}.", "Memories discharged: {0} of {1}.": "Recuerdos descargados: {0} de {1}.",
   "{0} discharged: {1} of {2}, all intensity zero.": "{0}: se descargaron {1} de {2}, toda la intensidad en cero.",
   "{0} discharged: {1} of {2}.": "{0}: se descargaron {1} de {2}.",
   "Still open: {0} (last intensity {1})": "Sigue abierto: {0} (última intensidad {1})",
@@ -955,6 +987,28 @@ async function processMemory(mem) {
 }
 
 // One experience: percepts, the limiting thought, cancel, the replacement, until nothing about it is suboptimal.
+// Each thought is stored as an item with one cycle, so the report lists what was canceled and planted.
+async function runThoughts() {
+  await say(THOUGHT.THINK);
+  session.transcript.push({ q: THOUGHT.THINK, a: await getAnswer({ autoContinueMs: 10000 }) });
+  for (let n = 0; n < MAX_CYCLES; n++) {
+    const cyc = { perceptics: {}, counter: null, negCount: 0, seed: null, posCount: 0, after: null };
+    const item = { name: null, cycles: [cyc] };
+    session.items.push(item);
+    item.name = cyc.counter = cleanPhrase(await ask(n ? THOUGHT.VOICE : THOUGHT.WHAT, { questions: false, skip: false }));
+    if (n) await say(THOUGHT.THANKS);
+    cyc.negCount = await repeatTen(THOUGHT.REPEAT_NEG, cyc.counter);
+    await say(THOUGHT.CANCEL);
+    await getAnswer({ autoContinueMs: 7000 });
+    cyc.seed = cleanPhrase(await ask(n ? THOUGHT.REPLACE : THOUGHT.REPLACE_FIRST, { questions: false, skip: false }));
+    cyc.posCount = await repeatTen(THOUGHT.REPEAT_POS, cyc.seed);
+    cyc.after = 0;
+    saveProgress();
+    if (!(await askParsed(THOUGHT.ANOTHER, parseYesNo, "yesno"))) break;
+  }
+  await say(THOUGHT.THANKS);
+}
+
 async function runExperienceItem() {
   const item = { name: null, ideal: null, cycles: [] };
   session.items.push(item);
@@ -1047,7 +1101,8 @@ async function runSession(mode) {
     try {
       if (await runChecklist()) {
         await openSession();
-        if (!(await askParsed(S.START, parseYesNo, "yesno")) && !(await drawUp(mode.draw))) { session.outcome = "no charge present"; await say(S.NONE_START); }
+        if (mode.item === "thought") await runThoughts();
+        else if (!(await askParsed(S.START, parseYesNo, "yesno")) && !(await drawUp(mode.draw))) { session.outcome = "no charge present"; await say(S.NONE_START); }
         else {
           while (true) {
             await (mode.item === "memory" ? runMemoryItem() : mode.item === "experience" ? runExperienceItem() : runItem());
@@ -1096,14 +1151,16 @@ function buildReport(summary) {
     L.push("");
   }
   session.items.forEach((it, i) => {
-    L.push(T("ITEM {0}: {1}", i + 1, [it.name, it.location].filter(Boolean).join(", ") || T("(not located)")), it.ideal != null ? T("Ideal outcome: {0}", it.ideal) : T("Starting intensity: {0}", it.start ?? "-"));
+    const thought = session.mode.item === "thought";
+    L.push(T("ITEM {0}: {1}", i + 1, [it.name, it.location].filter(Boolean).join(", ") || T("(not located)")));
+    if (!thought) L.push(it.ideal != null ? T("Ideal outcome: {0}", it.ideal) : T("Starting intensity: {0}", it.start ?? "-"));
     it.cycles.forEach((c, j) => {
-      L.push(`  ${T("Cycle {0}", j + 1)}`);
+      if (!thought) L.push(`  ${T("Cycle {0}", j + 1)}`);
       for (const [k, v] of Object.entries(c.perceptics)) L.push(`    ${keyLabel(k)}: ${v}`);
       if (c.memory) L.push(...memoryLines(c.memory, "    "));
       if (c.counter) L.push(`    ${T("Counter-intention: \"{0}\" (said {1}x, canceled)", c.counter, c.negCount)}`);
       if (c.seed) L.push(`    ${T("Seed: \"{0}\" (said {1}x)", c.seed, c.posCount)}`);
-      if (c.after !== null) L.push(`    ${it.ideal != null ? T("Optimal now: {0}", T(c.after === 0 ? "yes" : "no")) : T("Intensity after: {0}", c.after)}`);
+      if (c.after !== null && !thought) L.push(`    ${it.ideal != null ? T("Optimal now: {0}", T(c.after === 0 ? "yes" : "no")) : T("Intensity after: {0}", c.after)}`);
     });
     L.push("");
   });
@@ -1116,7 +1173,8 @@ function buildReport(summary) {
   const seeds = recs.filter(c => c.seed && c.posCount).map(c => c.seed);
   L.push(T("RESULT"));
   if (memories.length) L.push(T("Memories discharged: {0} of {1}.", memDone.length, memories.length));
-  if (session.mode.item === "experience") L.push(T("{0} optimized: {1} of {2}.", session.mode.noun, discharged.length, session.items.length));
+  if (session.mode.item === "thought") L.push(T("{0} canceled: {1}.", session.mode.noun, session.items.filter(it => it.cycles[0].negCount).length));
+  else if (session.mode.item === "experience") L.push(T("{0} optimized: {1} of {2}.", session.mode.noun, discharged.length, session.items.length));
   else if (session.mode.item !== "memory") L.push(session.items.length && discharged.length === session.items.length
     ? T("{0} discharged: {1} of {2}, all intensity zero.", session.mode.noun, discharged.length, session.items.length)
     : T("{0} discharged: {1} of {2}.", session.mode.noun, discharged.length, session.items.length));
