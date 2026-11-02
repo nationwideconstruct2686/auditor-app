@@ -83,7 +83,7 @@ const SUPABASE_URL = "https://enliecoohmnxzsotxbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FM_HCailVe5aoMrTGQpdZg_KzMJSVxq";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRICE_IN = 0.10 / 1e6, PRICE_OUT = 0.50 / 1e6; // Haiku, dollars per token
-const APP_VERSION = "20261101-211802"; // stamped by publish-phone-app.sh on every publish
+const APP_VERSION = "20261101-212652"; // stamped by publish-phone-app.sh on every publish
 
 // English or Spanish, chosen per phone. Changing it reloads the app.
 const LANG = (() => { try { return localStorage.getItem("lang") === "es" ? "es" : "en"; } catch { return "en"; } })();
@@ -236,7 +236,7 @@ const MODES = [
   { id: "negative_emotion", group: "light", name: "Negative Emotion Processing Light", desc: "Find the counter-intention, neutralize it, replace it with an absolute truth, and reduce the negative emotion to zero.", ready: true, ...EMOTION },
   { id: "feelings", group: "light", name: "Limiting Feelings Processing Light", desc: "Find the counter-intention, neutralize it, replace it with an absolute truth, and reduce the limiting feeling to zero.", ready: true, ...FEELING },
   { id: "experience", group: "light", name: "Experience Processing", ready: true, item: "experience", noun: "Experiences",
-    desc: "Process a recent experience that you want to optimize that doesn't have any somatics, negative emotions, limiting feelings, or distinguishing limiting feelings.",
+    desc: "Process a recent experience that you want to optimize that doesn't have any somatics, negative emotions, or distinguishing limiting feelings.",
     lines: { START: "Do you have a recent experience you want to optimize?",
              VOICE: "What is the limiting thought which is acting as a counter-intention to a more optimal experience?",
              ITEM_DONE: "That experience is optimized. Is there any other experience you want to optimize?" } },
@@ -409,7 +409,7 @@ const ES = {
         draw: { DESCRIBE: "Describe una situación de tu pasado que todavía te moleste.", MORE: more,
                 HAVE: "¿Hay ahí un recuerdo que quieras procesar ahora?" } },
       experience: { name: "Procesamiento de Experiencias", noun: "Experiencias",
-        desc: "Procesa una experiencia reciente que quieras optimizar y que no tenga somáticos, emociones negativas, sentimientos limitantes ni sentimientos limitantes distintivos.",
+        desc: "Procesa una experiencia reciente que quieras optimizar y que no tenga somáticos, emociones negativas ni sentimientos limitantes distinguibles.",
         lines: { START: "¿Tienes alguna experiencia reciente que quieras optimizar?",
                  VOICE: "¿Cuál es el pensamiento limitante que está actuando como contraintención a una experiencia más óptima?",
                  ITEM_DONE: "Esa experiencia está optimizada. ¿Hay alguna otra experiencia que quieras optimizar?" } },
